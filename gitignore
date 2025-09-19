@@ -1,0 +1,26 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log*
+yarn-error.log*
+
+# Firebase
+.firebase/
+.firebaserc
+firebase-debug.log
+firebase-debug.*.log
+
+# Functions (Cloud Functions for Firebase)
+functions/node_modules/
+functions/lib/
+functions/.env
+functions/package-lock.json
+
+# Service Account Keys (絶対に公開NG)
+*.json
+
+# OS / Editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
