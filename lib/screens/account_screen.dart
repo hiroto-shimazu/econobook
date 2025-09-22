@@ -27,14 +27,22 @@ class _AccountScreenState extends State<AccountScreen> {
       stream: userRef.snapshots(),
       builder: (context, snap) {
         final data = snap.data?.data() ?? {};
-        final name = (data['name'] as String?) ?? (widget.user.displayName ?? '未設定');
-        final handle = (data['handle'] as String?) ?? '@${(widget.user.uid).substring(0, 6)}';
-        final score = (data['score'] is Map ? (data['score']['trust'] as num?) : null) ?? 700;
+        final name =
+            (data['name'] as String?) ?? (widget.user.displayName ?? '未設定');
+        final handle = (data['handle'] as String?) ??
+            '@${(widget.user.uid).substring(0, 6)}';
+        final score =
+            (data['score'] is Map ? (data['score']['trust'] as num?) : null) ??
+                700;
 
-        final settings = (data['settings'] as Map?)?.cast<String, dynamic>() ?? {};
-        final notifications = (settings['notifications'] as Map?)?.cast<String, dynamic>() ?? {};
-        final minorMode = (settings['minorMode'] as Map?)?.cast<String, dynamic>() ?? {};
-        final developer = (settings['developer'] as Map?)?.cast<String, dynamic>() ?? {};
+        final settings =
+            (data['settings'] as Map?)?.cast<String, dynamic>() ?? {};
+        final notifications =
+            (settings['notifications'] as Map?)?.cast<String, dynamic>() ?? {};
+        final minorMode =
+            (settings['minorMode'] as Map?)?.cast<String, dynamic>() ?? {};
+        final developer =
+            (settings['developer'] as Map?)?.cast<String, dynamic>() ?? {};
 
         final txNoti = notifications['transactions'] as bool? ?? true;
         final taskNoti = notifications['tasks'] as bool? ?? true;
@@ -61,17 +69,20 @@ class _AccountScreenState extends State<AccountScreen> {
                   backgroundColor: kLightGray,
                   child: Text(
                     (name.isNotEmpty ? name[0] : '?'),
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 22, fontWeight: FontWeight.bold),
                   ),
                 ),
-                title: Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                subtitle: Text(handle, style: const TextStyle(color: Colors.black54)),
+                title: Text(name,
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                subtitle:
+                    Text(handle, style: const TextStyle(color: Colors.black54)),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _editProfileDialog(data),
               ),
             ),
             const SizedBox(height: 16),
-
             _sectionHeader('信用スコア'),
             Container(
               padding: const EdgeInsets.all(16),
@@ -83,9 +94,11 @@ class _AccountScreenState extends State<AccountScreen> {
               child: Row(
                 children: [
                   Container(
-                    width: 48, height: 48,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
-                      color: kLightGray, borderRadius: BorderRadius.circular(12),
+                      color: kLightGray,
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Center(child: _gradientIcon(Icons.verified_user)),
                   ),
@@ -93,8 +106,11 @@ class _AccountScreenState extends State<AccountScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('$score', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                      Text(_gradeForScore(score), style: const TextStyle(color: Colors.green)),
+                      Text('$score',
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.bold)),
+                      Text(_gradeForScore(score),
+                          style: const TextStyle(color: Colors.green)),
                     ],
                   ),
                   const Spacer(),
@@ -105,7 +121,11 @@ class _AccountScreenState extends State<AccountScreen> {
                         builder: (_) => AlertDialog(
                           title: const Text('スコアの計算式'),
                           content: const Text('遅延・完了率・通報率・相互評価などから算出（将来公開予定）。'),
-                          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('閉じる'))],
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('閉じる'))
+                          ],
                         ),
                       );
                     },
@@ -116,7 +136,6 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
             _sectionHeader('未成年モード'),
             Container(
               decoration: BoxDecoration(
@@ -130,13 +149,13 @@ class _AccountScreenState extends State<AccountScreen> {
                     title: '未成年モードを有効にする',
                     subtitle: '日次・月次の上限や夜間投稿制限を適用します。',
                     value: minorEnabled,
-                    onChanged: (v) => _updateSetting('settings.minorMode.enabled', v),
+                    onChanged: (v) =>
+                        _updateSetting('settings.minorMode.enabled', v),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-
             _sectionHeader('通知'),
             Container(
               decoration: BoxDecoration(
@@ -149,25 +168,27 @@ class _AccountScreenState extends State<AccountScreen> {
                   _settingsSwitchTile(
                     title: '取引',
                     value: txNoti,
-                    onChanged: (v) => _updateSetting('settings.notifications.transactions', v),
+                    onChanged: (v) => _updateSetting(
+                        'settings.notifications.transactions', v),
                   ),
                   const Divider(height: 1),
                   _settingsSwitchTile(
                     title: 'タスク・期限',
                     value: taskNoti,
-                    onChanged: (v) => _updateSetting('settings.notifications.tasks', v),
+                    onChanged: (v) =>
+                        _updateSetting('settings.notifications.tasks', v),
                   ),
                   const Divider(height: 1),
                   _settingsSwitchTile(
                     title: 'ニュース・アップデート',
                     value: newsNoti,
-                    onChanged: (v) => _updateSetting('settings.notifications.news', v),
+                    onChanged: (v) =>
+                        _updateSetting('settings.notifications.news', v),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-
             _sectionHeader('セキュリティ'),
             Container(
               decoration: BoxDecoration(
@@ -198,7 +219,6 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
             _sectionHeader('連携'),
             Container(
               decoration: BoxDecoration(
@@ -229,7 +249,6 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
             _sectionHeader('データ管理'),
             Container(
               decoration: BoxDecoration(
@@ -249,9 +268,12 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
                   const Divider(height: 1),
                   ListTile(
-                    leading: const Icon(Icons.delete_forever, color: Colors.red),
-                    title: const Text('アカウント削除', style: TextStyle(color: Colors.red)),
-                    trailing: const Icon(Icons.chevron_right, color: Colors.red),
+                    leading:
+                        const Icon(Icons.delete_forever, color: Colors.red),
+                    title: const Text('アカウント削除',
+                        style: TextStyle(color: Colors.red)),
+                    trailing:
+                        const Icon(Icons.chevron_right, color: Colors.red),
                     onTap: () async {
                       final ok = await showDialog<bool>(
                         context: context,
@@ -259,8 +281,12 @@ class _AccountScreenState extends State<AccountScreen> {
                           title: const Text('アカウント削除'),
                           content: const Text('この操作は取り消せません。続行しますか？'),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('キャンセル')),
-                            FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('削除する')),
+                            TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('キャンセル')),
+                            FilledButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('削除する')),
                           ],
                         ),
                       );
@@ -269,7 +295,8 @@ class _AccountScreenState extends State<AccountScreen> {
                           await FirebaseAuth.instance.currentUser?.delete();
                         } catch (e) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('削除には再ログインが必要な場合があります')),
+                            const SnackBar(
+                                content: Text('削除には再ログインが必要な場合があります')),
                           );
                         }
                       }
@@ -279,12 +306,13 @@ class _AccountScreenState extends State<AccountScreen> {
               ),
             ),
             const SizedBox(height: 24),
-
             SizedBox(
               width: double.infinity,
               height: 48,
               child: DecoratedBox(
-                decoration: BoxDecoration(gradient: kBrandGrad, borderRadius: BorderRadius.circular(24)),
+                decoration: BoxDecoration(
+                    gradient: kBrandGrad,
+                    borderRadius: BorderRadius.circular(24)),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
                   child: FilledButton(
@@ -318,7 +346,11 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget _sectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-      child: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.black54)),
+      child: Text(title,
+          style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Colors.black54)),
     );
   }
 
@@ -332,7 +364,9 @@ class _AccountScreenState extends State<AccountScreen> {
       value: value,
       onChanged: onChanged,
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: subtitle == null ? null : Text(subtitle, style: const TextStyle(color: Colors.black54)),
+      subtitle: subtitle == null
+          ? null
+          : Text(subtitle, style: const TextStyle(color: Colors.black54)),
       activeColor: kBrandBlue,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16),
     );
@@ -346,14 +380,17 @@ class _AccountScreenState extends State<AccountScreen> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存に失敗しました: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('保存に失敗しました: $e')));
       }
     }
   }
 
   Future<void> _editProfileDialog(Map<String, dynamic> userDoc) async {
-    final nameCtrl = TextEditingController(text: (userDoc['name'] as String?) ?? (widget.user.displayName ?? ''));
-    final handleCtrl = TextEditingController(text: (userDoc['handle'] as String?) ?? '');
+    final nameCtrl = TextEditingController(
+        text: (userDoc['name'] as String?) ?? (widget.user.displayName ?? ''));
+    final handleCtrl =
+        TextEditingController(text: (userDoc['handle'] as String?) ?? '');
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -361,15 +398,23 @@ class _AccountScreenState extends State<AccountScreen> {
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: '名前')),
-            TextField(controller: handleCtrl, decoration: const InputDecoration(labelText: 'ハンドル（任意）')),
+            TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(labelText: '名前')),
+            TextField(
+                controller: handleCtrl,
+                decoration: const InputDecoration(labelText: 'ハンドル（任意）')),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('キャンセル')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('キャンセル')),
           FilledButton(
             onPressed: () async {
-              await FirebaseFirestore.instance.doc('users/${widget.user.uid}').set({
+              await FirebaseFirestore.instance
+                  .doc('users/${widget.user.uid}')
+                  .set({
                 'name': nameCtrl.text.trim(),
                 'handle': handleCtrl.text.trim(),
               }, SetOptions(merge: true));

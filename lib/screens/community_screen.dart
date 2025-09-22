@@ -1,8 +1,17 @@
-
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show setEquals;
+import 'package:flutter/services.dart';
+
+import '../constants/community.dart';
+import '../models/community.dart';
+import '../services/community_service.dart';
+import '../services/request_service.dart';
+import '../widgets/bank_panels.dart';
+import 'central_bank_screen.dart';
 import 'community_create_screen.dart';
+import 'transactions/transaction_flow_screen.dart';
 
 // ---- Brand tokens (アプリ全体と統一) ----
 const Color kBrandBlue = Color(0xFF0D80F2);
@@ -23,6 +32,8 @@ class CommunitiesScreen extends StatefulWidget {
 
 class _CommunitiesScreenState extends State<CommunitiesScreen> {
   final TextEditingController _inviteCtrl = TextEditingController();
+  final CommunityService _communityService = CommunityService();
+  Set<String> _myCommunityIds = <String>{};
 
   @override
   void dispose() {
@@ -38,16 +49,16 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         .orderBy('joinedAt', descending: true);
 
     // Discover（公開コミュ）: まずは単純に最新順。将来 where('discoverable', isEqualTo: true) を追加
-    final discoverQuery = FirebaseFirestore.instance
-        .collection('communities')
-        .limit(10);
+    final discoverQuery =
+        FirebaseFirestore.instance.collection('communities').limit(10);
 
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text('コミュニティ', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: const Text('コミュニティ',
+            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             tooltip: 'コミュニティを作成',
@@ -81,6 +92,17 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                 );
               }
               final docs = snap.data?.docs ?? [];
+              final newSet = <String>{
+                for (final doc in docs)
+                  if (doc.data()['cid'] is String) doc.data()['cid'] as String
+              };
+              if (!setEquals(_myCommunityIds, newSet)) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) {
+                    setState(() => _myCommunityIds = newSet);
+                  }
+                });
+              }
               if (docs.isEmpty) {
                 return _emptyMyCommunities(context);
               }
@@ -88,18 +110,31 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                 children: [
                   for (final m in docs) ...[
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      future: FirebaseFirestore.instance.doc('communities/${m['cid']}').get(),
+                      future: FirebaseFirestore.instance
+                          .doc('communities/${m['cid']}')
+                          .get(),
                       builder: (context, cSnap) {
-                        final c = cSnap.data?.data() ?? <String, dynamic>{};
-                        final cid = (m['cid'] as String?) ?? 'unknown';
-                        final name = (c['name'] as String?) ?? cid;
-                        final members = (c['membersCount'] as num?)?.toInt();
-                        final cover = (c['coverUrl'] as String?);
+                        final membershipData = m.data();
+                        final cid =
+                            (membershipData['cid'] as String?) ?? 'unknown';
+                        final community =
+                            cSnap.data?.data() ?? <String, dynamic>{};
+                        final name = (community['name'] as String?) ?? cid;
+                        final members =
+                            (community['membersCount'] as num?)?.toInt();
+                        final cover = (community['coverUrl'] as String?);
                         return _communityCard(
                           title: name,
-                          subtitle: members == null ? 'メンバー数 —' : 'メンバー ${members}人',
+                          subtitle:
+                              members == null ? 'メンバー数 —' : 'メンバー ${members}人',
                           coverUrl: cover,
-                          onTap: () => _openCommunitySheet(context, cid),
+                          onTap: () => _openCommunitySheet(
+                            context,
+                            cid,
+                            membershipData,
+                            widget.user,
+                            community,
+                          ),
                         );
                       },
                     ),
@@ -125,7 +160,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                     hintText: '招待コード / コミュニティID を入力',
                     filled: true,
                     fillColor: kLightGray,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                    contentPadding: const EdgeInsets.symmetric(
+                        vertical: 16, horizontal: 16),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
@@ -141,7 +177,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               SizedBox(
                 height: 48,
                 child: DecoratedBox(
-                  decoration: const BoxDecoration(gradient: kBrandGrad, borderRadius: BorderRadius.all(Radius.circular(12))),
+                  decoration: const BoxDecoration(
+                      gradient: kBrandGrad,
+                      borderRadius: BorderRadius.all(Radius.circular(12))),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: FilledButton(
@@ -151,7 +189,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                         shadowColor: Colors.transparent,
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                       ),
-                      onPressed: () async => _joinCommunityWithCode(context, _inviteCtrl.text.trim()),
+                      onPressed: () async => _joinCommunityWithCode(
+                          context, _inviteCtrl.text.trim()),
                       child: const Text('参加'),
                     ),
                   ),
@@ -160,7 +199,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          const Center(child: Text('または', style: TextStyle(color: Colors.grey))),
+          const Center(
+              child: Text('または', style: TextStyle(color: Colors.grey))),
 
           const SizedBox(height: 12),
           _sectionHeader('探して参加申請'),
@@ -180,7 +220,11 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                 );
               }
               final docs = snap.data?.docs ?? [];
-              if (docs.isEmpty) {
+              final filtered = [
+                for (final d in docs)
+                  if (!_myCommunityIds.contains(d.id)) d
+              ];
+              if (filtered.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.all(16),
                   child: Text('公開中のコミュニティはまだありません'),
@@ -188,7 +232,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               }
               return Column(
                 children: [
-                  for (final d in docs) ...[
+                  for (final d in filtered) ...[
                     _discoverCard(d.data(), onRequest: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('参加申請は準備中です')),
@@ -209,7 +253,11 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   Widget _sectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-      child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.black87)),
+      child: Text(title,
+          style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.black87)),
     );
   }
 
@@ -251,7 +299,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     );
   }
 
-  Widget _discoverCard(Map<String, dynamic> c, {required VoidCallback onRequest}) {
+  Widget _discoverCard(Map<String, dynamic> c,
+      {required VoidCallback onRequest}) {
     final title = (c['name'] as String?) ?? (c['id'] as String? ?? 'Community');
     final members = (c['membersCount'] as num?)?.toInt();
     final cover = (c['coverUrl'] as String?);
@@ -286,7 +335,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(title,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
                   Text(
                     members == null ? 'メンバー数 —' : 'メンバー ${members}人',
                     style: const TextStyle(color: Colors.black54),
@@ -315,7 +365,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     return Container(
       width: 56,
       height: 56,
-      decoration: BoxDecoration(color: kLightGray, borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(
+          color: kLightGray, borderRadius: BorderRadius.circular(8)),
       alignment: Alignment.center,
       child: Text(
         title.isNotEmpty ? title.characters.first.toUpperCase() : '?',
@@ -335,12 +386,15 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('まだコミュニティがありません', style: TextStyle(fontWeight: FontWeight.w600)),
+          const Text('まだコミュニティがありません',
+              style: TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           Row(
             children: [
               DecoratedBox(
-                decoration: const BoxDecoration(gradient: kBrandGrad, borderRadius: BorderRadius.all(Radius.circular(999))),
+                decoration: const BoxDecoration(
+                    gradient: kBrandGrad,
+                    borderRadius: BorderRadius.all(Radius.circular(999))),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(999),
                   child: FilledButton.icon(
@@ -357,7 +411,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               ),
               const SizedBox(width: 12),
               DecoratedBox(
-                decoration: const BoxDecoration(gradient: kBrandGrad, borderRadius: BorderRadius.all(Radius.circular(999))),
+                decoration: const BoxDecoration(
+                    gradient: kBrandGrad,
+                    borderRadius: BorderRadius.all(Radius.circular(999))),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(999),
                   child: FilledButton.icon(
@@ -381,24 +437,32 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
 
   // ===== Actions =====
   Future<void> _joinCommunityWithCode(BuildContext context, String code) async {
-    final cid = code.trim();
-    if (cid.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('コードを入力してください')));
+    final invite = code.trim().toUpperCase();
+    if (invite.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('コードを入力してください')));
       return;
     }
     try {
-      await FirebaseFirestore.instance.doc('memberships/${cid}_${widget.user.uid}').set({
-        'cid': cid,
-        'uid': widget.user.uid,
-        'balance': 0,
-        'joinedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-      await FirebaseFirestore.instance.doc('communities/$cid').set({'name': cid}, SetOptions(merge: true));
+      final joined = await _communityService.joinCommunity(
+        userId: widget.user.uid,
+        inviteCode: invite,
+      );
       if (!mounted) return;
       _inviteCtrl.clear();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('「$cid」に参加しました')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              joined ? '招待コード「$invite」で参加しました' : '招待コード「$invite」で参加申請を送信しました'),
+        ),
+      );
+    } on StateError catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('参加に失敗しました: ${e.message}')),
+      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('参加に失敗しました: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('参加に失敗しました: $e')));
     }
   }
 
@@ -433,93 +497,1211 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     await _joinCommunityWithCode(context, cid);
   }
 
-    // 単一画面のコミュニティ作成へ遷移
-    Future<void> _createCommunity(BuildContext context) async {
+  // 単一画面のコミュニティ作成へ遷移
+  Future<void> _createCommunity(BuildContext context) async {
     final created = await Navigator.push<bool>(
-        context,
-        MaterialPageRoute(builder: (_) => const CommunityCreateScreen()),
+      context,
+      MaterialPageRoute(builder: (_) => const CommunityCreateScreen()),
     );
     if (created == true && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('コミュニティを作成しました')),
-        );
+      );
     }
-    }
+  }
 
-  Future<void> _openCommunitySheet(BuildContext context, String cid) async {
+  Future<void> _openCommunitySheet(
+      BuildContext context,
+      String communityId,
+      Map<String, dynamic> membershipData,
+      User user,
+      Map<String, dynamic>? communityPreview) async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
-        return DefaultTabController(
-          length: 4,
-          child: SizedBox(
-            height: MediaQuery.of(ctx).size.height * 0.85,
-            child: Scaffold(
-              appBar: AppBar(
-                automaticallyImplyLeading: false,
-                backgroundColor: Colors.white,
-                elevation: 0,
-                title: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  future: FirebaseFirestore.instance.doc('communities/$cid').get(),
-                  builder: (context, snap) {
-                    final name = snap.data?.data()?['name'] as String?;
-                    return Text(name ?? cid, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold));
-                  },
-                ),
-                bottom: const TabBar(
-                  tabs: [
-                    Tab(text: 'フィード'),
-                    Tab(text: 'タスク'),
-                    Tab(text: 'トレジャリー'),
-                    Tab(text: 'メンバー'),
-                  ],
-                  labelColor: kBrandBlue,
-                  unselectedLabelColor: Colors.grey,
-                  indicatorColor: kBrandBlue,
-                ),
-              ),
-              body: TabBarView(
-                children: [
-                  // Feed
-                  ListView(
-                    padding: const EdgeInsets.all(24),
-                    children: const [SizedBox(height: 32), Center(child: Text('まだアクティビティがありません'))],
-                  ),
-                  // Tasks
-                  _CommunityTasksTab(cid: cid),
-                  // Treasury
-                  _CommunityTreasuryTab(cid: cid),
-                  // Members
-                  _CommunityMembersTab(cid: cid),
-                ],
-              ),
-            ),
-          ),
+        return _CommunityDetailSheet(
+          communityId: communityId,
+          membershipData: membershipData,
+          user: user,
+          communityPreview: communityPreview,
         );
       },
     );
   }
 }
 
-// ---- Placeholder tabs（将来置き換え）----
-class _CommunityTasksTab extends StatelessWidget {
-  const _CommunityTasksTab({required this.cid});
-  final String cid;
+class _CommunityDetailSheet extends StatelessWidget {
+  const _CommunityDetailSheet({
+    required this.communityId,
+    required this.membershipData,
+    required this.user,
+    required this.communityPreview,
+  });
+
+  final String communityId;
+  final Map<String, dynamic> membershipData;
+  final User user;
+  final Map<String, dynamic>? communityPreview;
+
   @override
-  Widget build(BuildContext context) => Center(child: Text('タスク（準備中）: $cid'));
+  Widget build(BuildContext context) {
+    final balance = (membershipData['balance'] as num?) ?? 0;
+    final role = (membershipData['role'] as String?) ?? 'member';
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.9,
+      minChildSize: 0.6,
+      builder: (ctx, controller) {
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .doc('communities/$communityId')
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('コミュニティ情報の取得に失敗しました: ${snapshot.error}'),
+                ),
+              );
+            }
+            final rawData = snapshot.data?.data();
+            final data = rawData ?? communityPreview ?? {};
+            final name = (data['name'] as String?) ?? communityId;
+            final currency = CommunityCurrency.fromMap(
+                (data['currency'] as Map<String, dynamic>?) ?? const {});
+            final policy = CommunityPolicy.fromMap(
+                (data['policy'] as Map<String, dynamic>?) ?? const {});
+            final communityService = CommunityService();
+            final requestService = RequestService();
+            final hasBankPermission =
+                role == 'owner' || (membershipData['canManageBank'] == true);
+            Future<void> handleBankSettings() async {
+              if (hasBankPermission) {
+                await CentralBankScreen.open(
+                  context,
+                  communityId: communityId,
+                  communityName: name,
+                  user: user,
+                );
+                return;
+              }
+              final messageCtrl = TextEditingController();
+              final result = await showDialog<String>(
+                context: context,
+                builder: (dialogCtx) {
+                  return AlertDialog(
+                    title: const Text('設定変更をリクエスト'),
+                    content: TextField(
+                      controller: messageCtrl,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        hintText: '変更してほしい内容があれば記入してください',
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(dialogCtx).pop(),
+                        child: const Text('キャンセル'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.of(dialogCtx)
+                            .pop(messageCtrl.text.trim()),
+                        child: const Text('送信'),
+                      ),
+                    ],
+                  );
+                },
+              );
+              final message = result?.trim();
+              messageCtrl.dispose();
+              if (message == null) return;
+              try {
+                await communityService.submitBankSettingRequest(
+                  communityId: communityId,
+                  requesterUid: user.uid,
+                  message: message.isEmpty ? null : message,
+                );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('設定変更リクエストを送信しました')),
+                );
+              } catch (e) {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('リクエスト送信に失敗しました: $e')),
+                );
+              }
+            }
+
+            final description = (data['description'] as String?) ?? '';
+            final symbol = (data['symbol'] as String?) ?? currency.code;
+            final membersCount = (data['membersCount'] as num?)?.toInt();
+            final inviteCode = (data['inviteCode'] as String?) ?? '';
+            final discoverable = data['discoverable'] == true;
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                rawData == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return Material(
+              color: Colors.white,
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  controller: controller,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade300,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+                      Text(name,
+                          style: const TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.black)),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          _RoleChip(role: role),
+                          if (membersCount != null)
+                            Chip(
+                              label: Text('メンバー $membersCount人'),
+                              backgroundColor: kLightGray,
+                            ),
+                          if (discoverable)
+                            const Chip(
+                              label: Text('一般公開'),
+                              backgroundColor: kLightGray,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      _BalanceSummaryCard(
+                        balance: balance,
+                        currency: currency,
+                        inviteCode: inviteCode.isEmpty ? null : inviteCode,
+                      ),
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text(description,
+                            style: const TextStyle(color: Colors.black87)),
+                      ],
+                      const SizedBox(height: 24),
+                      const _SectionHeader(title: 'ショートカット'),
+                      const SizedBox(height: 8),
+                      _QuickActions(
+                        onSend: () {
+                          Navigator.of(context).pop();
+                          TransactionFlowScreen.open(
+                            context,
+                            user: user,
+                            communityId: communityId,
+                            initialKind: TransactionKind.transfer,
+                          );
+                        },
+                        onRequest: () {
+                          Navigator.of(context).pop();
+                          TransactionFlowScreen.open(
+                            context,
+                            user: user,
+                            communityId: communityId,
+                            initialKind: TransactionKind.request,
+                          );
+                        },
+                        onSplit: () {
+                          Navigator.of(context).pop();
+                          TransactionFlowScreen.open(
+                            context,
+                            user: user,
+                            communityId: communityId,
+                            initialKind: TransactionKind.split,
+                          );
+                        },
+                        onTask: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('タスク募集は準備中です')),
+                          );
+                        },
+                        onBankSettings: handleBankSettings,
+                        canManageBank: hasBankPermission,
+                      ),
+                      const SizedBox(height: 24),
+                      const _SectionHeader(title: '通貨・中央銀行設定'),
+                      const SizedBox(height: 8),
+                      _CurrencyDetailsCard(
+                        currency: currency,
+                        policy: policy,
+                        onEdit: handleBankSettings,
+                        canManage: hasBankPermission,
+                      ),
+                      if (!hasBankPermission) ...[
+                        const SizedBox(height: 8),
+                        const Text('権限がない場合は「変更をリクエスト」から管理者へ依頼できます',
+                            style:
+                                TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                      if (hasBankPermission) ...[
+                        BankSettingRequestsPanel(
+                          communityId: communityId,
+                          service: communityService,
+                          resolverUid: user.uid,
+                          onOpenSettings: () => CentralBankScreen.open(
+                            context,
+                            communityId: communityId,
+                            communityName: name,
+                            user: user,
+                          ),
+                        ),
+                        CentralBankRequestsPanel(
+                          communityId: communityId,
+                          approverUid: user.uid,
+                          requestService: requestService,
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      if (role == 'owner' || role == 'admin') ...[
+                        const _SectionHeader(title: '参加申請'),
+                        const SizedBox(height: 8),
+                        _PendingJoinRequestsList(
+                          communityId: communityId,
+                          service: communityService,
+                          approverUid: user.uid,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      const _SectionHeader(title: '最近のタイムライン'),
+                      const SizedBox(height: 8),
+                      _CommunityActivityList(
+                        communityId: communityId,
+                        symbol: symbol,
+                        precision: currency.precision,
+                        currentUid: user.uid,
+                      ),
+                      const SizedBox(height: 24),
+                      const _SectionHeader(title: 'タスク'),
+                      const SizedBox(height: 8),
+                      _CommunityTasksList(communityId: communityId),
+                      const SizedBox(height: 24),
+                      const _SectionHeader(title: 'メンバー'),
+                      const SizedBox(height: 8),
+                      _CommunityMembersList(
+                        communityId: communityId,
+                        service: communityService,
+                        currentUserUid: user.uid,
+                        currentUserRole: role,
+                      ),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
-class _CommunityTreasuryTab extends StatelessWidget {
-  const _CommunityTreasuryTab({required this.cid});
-  final String cid;
+class _RoleChip extends StatelessWidget {
+  const _RoleChip({required this.role});
+  final String role;
+
   @override
-  Widget build(BuildContext context) => Center(child: Text('トレジャリー（準備中）: $cid'));
+  Widget build(BuildContext context) {
+    final label = switch (role) {
+      'owner' => 'オーナー',
+      'admin' => '管理者',
+      'mediator' => '仲介',
+      'pending' => '承認待ち',
+      _ => 'メンバー',
+    };
+    return Chip(
+      label: Text(label),
+      backgroundColor: kLightGray,
+    );
+  }
 }
 
-class _CommunityMembersTab extends StatelessWidget {
-  const _CommunityMembersTab({required this.cid});
-  final String cid;
+class _BalanceSummaryCard extends StatelessWidget {
+  const _BalanceSummaryCard({
+    required this.balance,
+    required this.currency,
+    this.inviteCode,
+  });
+
+  final num balance;
+  final CommunityCurrency currency;
+  final String? inviteCode;
+
   @override
-  Widget build(BuildContext context) => Center(child: Text('メンバー（準備中）: $cid'));
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0x22000000)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${currency.name} (${currency.code})',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black54,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '残高: ${balance.toStringAsFixed(currency.precision)} ${currency.code}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              ShaderMask(
+                shaderCallback: (Rect b) => kBrandGrad.createShader(b),
+                blendMode: BlendMode.srcIn,
+                child: const Icon(Icons.account_balance_wallet, size: 26),
+              ),
+            ],
+          ),
+          if (inviteCode != null) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.qr_code, size: 18, color: Colors.black54),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('招待コード: $inviteCode',
+                      style: const TextStyle(color: Colors.black54)),
+                ),
+                IconButton(
+                  tooltip: 'コードをコピー',
+                  onPressed: () async {
+                    await Clipboard.setData(ClipboardData(text: inviteCode!));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('招待コードをコピーしました')),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.copy, size: 18),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            SelectableText(
+              '参加リンク: https://econobook.app/join?code=$inviteCode',
+              style: const TextStyle(fontSize: 12, color: Colors.black45),
+            ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () async {
+                  final link = 'https://econobook.app/join?code=$inviteCode';
+                  await Clipboard.setData(ClipboardData(text: link));
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('参加リンクをコピーしました')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.copy_all, size: 18),
+                label: const Text('リンクをコピー'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickActions extends StatelessWidget {
+  const _QuickActions({
+    required this.onSend,
+    required this.onRequest,
+    required this.onSplit,
+    required this.onTask,
+    this.onBankSettings,
+    this.canManageBank = false,
+  });
+
+  final VoidCallback onSend;
+  final VoidCallback onRequest;
+  final VoidCallback onSplit;
+  final VoidCallback onTask;
+  final VoidCallback? onBankSettings;
+  final bool canManageBank;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _QuickActionButton(
+          icon: Icons.send,
+          label: '送金',
+          onTap: onSend,
+        ),
+        _QuickActionButton(
+          icon: Icons.receipt_long,
+          label: '請求',
+          onTap: onRequest,
+        ),
+        _QuickActionButton(
+          icon: Icons.calculate,
+          label: '割り勘',
+          onTap: onSplit,
+        ),
+        _QuickActionButton(
+          icon: Icons.task_alt,
+          label: 'タスク募集',
+          onTap: onTask,
+        ),
+        if (onBankSettings != null)
+          _QuickActionButton(
+            icon: Icons.account_balance,
+            label: canManageBank ? '中央銀行設定' : '設定リクエスト',
+            onTap: onBankSettings!,
+          ),
+      ],
+    );
+  }
+}
+
+class _QuickActionButton extends StatelessWidget {
+  const _QuickActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 140,
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: kBrandBlue,
+          side: const BorderSide(color: kBrandBlue),
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+        ),
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+      ),
+    );
+  }
+}
+
+class _CurrencyDetailsCard extends StatelessWidget {
+  const _CurrencyDetailsCard({
+    required this.currency,
+    required this.policy,
+    this.onEdit,
+    this.canManage = false,
+  });
+
+  final CommunityCurrency currency;
+  final CommunityPolicy policy;
+  final VoidCallback? onEdit;
+  final bool canManage;
+
+  @override
+  Widget build(BuildContext context) {
+    final actionLabel = canManage ? '設定を変更' : '変更をリクエスト';
+    final actionIcon = canManage ? Icons.edit : Icons.outgoing_mail;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0x22000000)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _currencyRow('通貨名', currency.name),
+          _currencyRow('シンボル', currency.code),
+          _currencyRow('小数点以下桁数', '${currency.precision} 桁'),
+          _currencyRow(
+              '発行方式', currency.supplyModel == 'capped' ? '上限あり' : '無制限'),
+          if (currency.maxSupply != null)
+            _currencyRow('最大発行枚数', currency.maxSupply!.toString()),
+          _currencyRow('取引手数料', '${currency.txFeeBps / 100}%'),
+          if (currency.borrowLimitPerMember != null)
+            _currencyRow('メンバー借入上限', currency.borrowLimitPerMember!.toString()),
+          _currencyRow('年利', '${currency.interestBps / 100}%'),
+          _currencyRow('メンバーによる発行', currency.allowMinting ? '許可' : '管理者のみ'),
+          if (currency.expireDays != null)
+            _currencyRow('有効期限', '${currency.expireDays}日'),
+          _currencyRow('参加承認', policy.requiresApproval ? '承認必須' : '自動参加'),
+          if (onEdit != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onEdit,
+                icon: Icon(actionIcon, size: 18),
+                label: Text(actionLabel),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _currencyRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 160,
+            child: Text(label,
+                style: const TextStyle(
+                    color: Colors.black54, fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: const TextStyle(color: Colors.black87, fontSize: 14)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingJoinRequestsList extends StatelessWidget {
+  const _PendingJoinRequestsList({
+    required this.communityId,
+    required this.service,
+    required this.approverUid,
+  });
+
+  final String communityId;
+  final CommunityService service;
+  final String approverUid;
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = FirebaseFirestore.instance
+        .collection('join_requests')
+        .doc(communityId)
+        .collection('items')
+        .where('status', isEqualTo: 'pending')
+        .orderBy('createdAt', descending: true)
+        .limit(20)
+        .snapshots();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('参加申請を取得できませんでした: ${snapshot.error}'),
+          );
+        }
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('未処理の申請はありません'),
+          );
+        }
+        return Column(
+          children: [
+            for (final doc in docs)
+              _JoinRequestTile(
+                communityId: communityId,
+                data: doc.data(),
+                requesterUid: doc.id,
+                service: service,
+                approverUid: approverUid,
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _JoinRequestTile extends StatefulWidget {
+  const _JoinRequestTile({
+    required this.communityId,
+    required this.data,
+    required this.requesterUid,
+    required this.service,
+    required this.approverUid,
+  });
+
+  final String communityId;
+  final Map<String, dynamic> data;
+  final String requesterUid;
+  final CommunityService service;
+  final String approverUid;
+
+  @override
+  State<_JoinRequestTile> createState() => _JoinRequestTileState();
+}
+
+class _JoinRequestTileState extends State<_JoinRequestTile> {
+  bool _processing = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final createdRaw = widget.data['createdAt'];
+    DateTime? createdAt;
+    if (createdRaw is Timestamp) createdAt = createdRaw.toDate();
+    if (createdRaw is DateTime) createdAt = createdRaw;
+
+    final createdLabel = createdAt == null
+        ? ''
+        : '${createdAt.year}/${createdAt.month.toString().padLeft(2, '0')}/${createdAt.day.toString().padLeft(2, '0')}';
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: ListTile(
+        title: Text(widget.requesterUid,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        subtitle: createdLabel.isEmpty
+            ? null
+            : Text('申請日: $createdLabel',
+                style: const TextStyle(color: Colors.black54)),
+        trailing: _processing
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton(
+                    onPressed: _processing ? null : () => _approve(context),
+                    child: const Text('承認'),
+                  ),
+                  TextButton(
+                    onPressed: _processing ? null : () => _reject(context),
+                    child: const Text('却下'),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Future<void> _approve(BuildContext context) async {
+    setState(() => _processing = true);
+    try {
+      await widget.service.approveJoinRequest(
+        communityId: widget.communityId,
+        requesterUid: widget.requesterUid,
+        approvedBy: widget.approverUid,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.requesterUid} を承認しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('承認に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _reject(BuildContext context) async {
+    setState(() => _processing = true);
+    try {
+      await widget.service.rejectJoinRequest(
+        communityId: widget.communityId,
+        requesterUid: widget.requesterUid,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${widget.requesterUid} を却下しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('却下に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+}
+
+class _CommunityActivityList extends StatelessWidget {
+  const _CommunityActivityList({
+    required this.communityId,
+    required this.symbol,
+    required this.precision,
+    required this.currentUid,
+  });
+
+  final String communityId;
+  final String symbol;
+  final int precision;
+  final String currentUid;
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = FirebaseFirestore.instance
+        .collection('ledger')
+        .doc(communityId)
+        .collection('entries')
+        .orderBy('createdAt', descending: true)
+        .limit(15)
+        .snapshots();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('タイムラインを取得できませんでした: ${snapshot.error}'),
+          );
+        }
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('まだアクティビティがありません'),
+          );
+        }
+        return Column(
+          children: [
+            for (final doc in docs)
+              _ActivityTile(
+                data: doc.data(),
+                symbol: symbol,
+                precision: precision,
+                currentUid: currentUid,
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ActivityTile extends StatelessWidget {
+  const _ActivityTile({
+    required this.data,
+    required this.symbol,
+    required this.precision,
+    required this.currentUid,
+  });
+
+  final Map<String, dynamic> data;
+  final String symbol;
+  final int precision;
+  final String currentUid;
+
+  @override
+  Widget build(BuildContext context) {
+    final type = (data['type'] as String?) ?? 'transfer';
+    final amount = (data['amount'] as num?) ?? 0;
+    final fromUid = (data['fromUid'] as String?) ?? '';
+    final toUid = (data['toUid'] as String?) ?? '';
+    final memo = (data['memo'] as String?) ?? '';
+    final createdRaw = data['createdAt'];
+    DateTime? createdAt;
+    if (createdRaw is Timestamp) createdAt = createdRaw.toDate();
+    if (createdRaw is DateTime) createdAt = createdRaw;
+
+    final icon = switch (type) {
+      'task' => Icons.task_alt,
+      'request' => Icons.receipt_long,
+      'split' => Icons.calculate,
+      'central_bank' => Icons.account_balance,
+      _ => Icons.swap_horiz,
+    };
+
+    final amountText = '${amount.toStringAsFixed(precision)} $symbol';
+    final fromDisplay = switch (fromUid) {
+      kCentralBankUid => '中央銀行',
+      '' => '—',
+      _ => fromUid,
+    };
+    final toDisplay = switch (toUid) {
+      kCentralBankUid => '中央銀行',
+      '' => '—',
+      _ => toUid,
+    };
+    final subtitle = memo.isNotEmpty ? memo : '$fromDisplay → $toDisplay';
+    final dateLabel = createdAt == null
+        ? ''
+        : '${createdAt.year}/${createdAt.month.toString().padLeft(2, '0')}/${createdAt.day.toString().padLeft(2, '0')}';
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: kLightGray,
+        child: Icon(icon, color: kBrandBlue),
+      ),
+      title:
+          Text(amountText, style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (subtitle.isNotEmpty) Text(subtitle),
+          if (dateLabel.isNotEmpty)
+            Text(dateLabel,
+                style: const TextStyle(fontSize: 12, color: Colors.black45)),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommunityTasksList extends StatelessWidget {
+  const _CommunityTasksList({required this.communityId});
+
+  final String communityId;
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = FirebaseFirestore.instance
+        .collection('tasks')
+        .doc(communityId)
+        .collection('items')
+        .orderBy('createdAt', descending: true)
+        .limit(10)
+        .snapshots();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('タスクを取得できませんでした: ${snapshot.error}'),
+          );
+        }
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('公開中のタスクはありません'),
+          );
+        }
+        return Column(
+          children: [
+            for (final doc in docs) _TaskTile(data: doc.data()),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TaskTile extends StatelessWidget {
+  const _TaskTile({required this.data});
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = (data['title'] as String?) ?? '無題のタスク';
+    final reward = (data['reward'] as num?) ?? 0;
+    final status = (data['status'] as String?) ?? 'open';
+    final deadlineRaw = data['deadline'];
+    DateTime? deadline;
+    if (deadlineRaw is Timestamp) deadline = deadlineRaw.toDate();
+    if (deadlineRaw is DateTime) deadline = deadlineRaw;
+
+    final statusLabel = switch (status) {
+      'open' => '募集',
+      'taken' => '進行中',
+      'submitted' => '承認待ち',
+      'approved' => '完了',
+      'rejected' => '却下',
+      _ => status,
+    };
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: kLightGray,
+        child: const Icon(Icons.task, color: kBrandBlue),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('報酬: $reward'),
+          Text('状態: $statusLabel',
+              style: const TextStyle(color: Colors.black54)),
+          if (deadline != null)
+            Text(
+              '締切: ${deadline.year}/${deadline.month.toString().padLeft(2, '0')}/${deadline.day.toString().padLeft(2, '0')}',
+              style: const TextStyle(fontSize: 12, color: Colors.black45),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommunityMembersList extends StatelessWidget {
+  const _CommunityMembersList({
+    required this.communityId,
+    required this.service,
+    required this.currentUserUid,
+    required this.currentUserRole,
+  });
+
+  final String communityId;
+  final CommunityService service;
+  final String currentUserUid;
+  final String currentUserRole;
+
+  bool get _canEditPermissions => currentUserRole == 'owner';
+
+  @override
+  Widget build(BuildContext context) {
+    final stream = FirebaseFirestore.instance
+        .collection('memberships')
+        .where('cid', isEqualTo: communityId)
+        .orderBy('joinedAt', descending: true)
+        .limit(20)
+        .snapshots();
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('メンバーを取得できませんでした: ${snapshot.error}'),
+          );
+        }
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('メンバーがまだいません'),
+          );
+        }
+        return Column(
+          children: [
+            for (final doc in docs)
+              _MemberTile(
+                communityId: communityId,
+                data: doc.data(),
+                service: service,
+                canEdit: _canEditPermissions,
+                currentUserUid: currentUserUid,
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _MemberTile extends StatefulWidget {
+  const _MemberTile({
+    required this.communityId,
+    required this.data,
+    required this.service,
+    required this.canEdit,
+    required this.currentUserUid,
+  });
+
+  final String communityId;
+  final Map<String, dynamic> data;
+  final CommunityService service;
+  final bool canEdit;
+  final String currentUserUid;
+
+  @override
+  State<_MemberTile> createState() => _MemberTileState();
+}
+
+class _MemberTileState extends State<_MemberTile> {
+  late bool _hasPermission;
+  bool _updating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasPermission = widget.data['canManageBank'] == true;
+  }
+
+  @override
+  void didUpdateWidget(covariant _MemberTile oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final newValue = widget.data['canManageBank'] == true;
+    if (!_updating && newValue != _hasPermission) {
+      setState(() => _hasPermission = newValue);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = (widget.data['uid'] as String?) ?? 'unknown';
+    final role = (widget.data['role'] as String?) ?? 'member';
+    final balance = (widget.data['balance'] as num?) ?? 0;
+    final canToggle =
+        widget.canEdit && role != 'owner' && uid != widget.currentUserUid;
+
+    String roleLabel(String value) {
+      return switch (value) {
+        'owner' => 'オーナー',
+        'admin' => '管理者',
+        'mediator' => '仲介',
+        'pending' => '承認待ち',
+        _ => 'メンバー',
+      };
+    }
+
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        backgroundColor: kLightGray,
+        child: Text(uid.isNotEmpty ? uid.substring(0, 1).toUpperCase() : '?'),
+      ),
+      title: Text(uid, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('役割: ${roleLabel(role)}'
+              '${_hasPermission ? ' • 設定権限あり' : ''}'),
+          Text('残高: ${balance.toStringAsFixed(2)}',
+              style: const TextStyle(color: Colors.black54)),
+        ],
+      ),
+      trailing: canToggle
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_updating)
+                  const SizedBox(
+                    height: 16,
+                    width: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                Switch.adaptive(
+                  value: _hasPermission,
+                  onChanged: _updating ? null : _togglePermission,
+                ),
+              ],
+            )
+          : (_hasPermission
+              ? const Icon(Icons.verified_user, color: kBrandBlue)
+              : null),
+    );
+  }
+
+  Future<void> _togglePermission(bool value) async {
+    if (_updating) return;
+    final targetUid = (widget.data['uid'] as String?) ?? '';
+    if (targetUid.isEmpty) return;
+    setState(() {
+      _hasPermission = value;
+      _updating = true;
+    });
+    try {
+      await widget.service.setBankManagementPermission(
+        communityId: widget.communityId,
+        targetUid: targetUid,
+        enabled: value,
+        updatedBy: widget.currentUserUid,
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(value
+              ? '$targetUid に中央銀行設定権限を付与しました'
+              : '$targetUid の中央銀行設定権限を解除しました'),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('権限の更新に失敗しました: $e')),
+        );
+      }
+      if (mounted) {
+        setState(() => _hasPermission = !value);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _updating = false);
+      }
+    }
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title});
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(title,
+        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold));
+  }
 }

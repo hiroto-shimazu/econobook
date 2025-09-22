@@ -39,18 +39,18 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
     }
     setState(() => _loading = true);
     try {
-        await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-        if (!mounted) return;
-        Navigator.pushReplacement(
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (!mounted) return;
+      Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const ResetPasswordSentScreen()),
-        );
+      );
     } on FirebaseAuthException catch (e) {
       final msg = switch (e.code) {
-        'invalid-email'  => 'メールアドレスの形式が正しくありません',
+        'invalid-email' => 'メールアドレスの形式が正しくありません',
         'user-not-found' => 'このメールアドレスのユーザーは見つかりませんでした',
-        'missing-email'  => 'メールアドレスを入力してください',
-        _                => '送信に失敗しました (${e.code})',
+        'missing-email' => 'メールアドレスを入力してください',
+        _ => '送信に失敗しました (${e.code})',
       };
       _toast(msg);
     } catch (e) {
@@ -104,7 +104,8 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                     const SizedBox(height: 16),
                     const Text(
                       'パスワードの再設定',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     const Text(
@@ -123,16 +124,22 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                         prefixIcon: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: ShaderMask(
-                            shaderCallback: (Rect bounds) => const LinearGradient(
+                            shaderCallback: (Rect bounds) =>
+                                const LinearGradient(
                               begin: Alignment.centerLeft,
                               end: Alignment.centerRight,
-                              colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+                              colors: [
+                                Color(0xFFE53935),
+                                Color(0xFF0D80F2)
+                              ], // 赤→青
                             ).createShader(bounds),
                             blendMode: BlendMode.srcIn,
-                            child: const Icon(Icons.email, size: 22, color: Colors.white),
+                            child: const Icon(Icons.email,
+                                size: 22, color: Colors.white),
                           ),
                         ),
-                        prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                        prefixIconConstraints:
+                            const BoxConstraints(minWidth: 44, minHeight: 44),
                         filled: true,
                         fillColor: const Color(0xFFF0F2F5),
                         border: OutlineInputBorder(
@@ -141,9 +148,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: brandBlue, width: 2),
+                          borderSide:
+                              const BorderSide(color: brandBlue, width: 2),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                            vertical: 18, horizontal: 16),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -157,7 +166,10 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                           gradient: const LinearGradient(
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
-                            colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+                            colors: [
+                              Color(0xFFE53935),
+                              Color(0xFF0D80F2)
+                            ], // 赤→青
                           ),
                           borderRadius: BorderRadius.circular(28),
                         ),
@@ -170,13 +182,16 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                               surfaceTintColor: Colors.transparent,
                               foregroundColor: Colors.white,
                               shape: const StadiumBorder(),
-                              textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              textStyle: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16),
                             ),
                             onPressed: _loading ? null : _sendReset,
                             child: _loading
                                 ? const SizedBox(
-                                    width: 22, height: 22,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white),
                                   )
                                 : const Text('送信'),
                           ),
@@ -247,7 +262,8 @@ class ResetPasswordSentScreen extends StatelessWidget {
 
                     const Text(
                       'メールを送信しました',
-                      style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     const Text(
@@ -266,7 +282,10 @@ class ResetPasswordSentScreen extends StatelessWidget {
                           gradient: const LinearGradient(
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
-                            colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+                            colors: [
+                              Color(0xFFE53935),
+                              Color(0xFF0D80F2)
+                            ], // 赤→青
                           ),
                           borderRadius: BorderRadius.circular(28),
                         ),
@@ -286,7 +305,8 @@ class ResetPasswordSentScreen extends StatelessWidget {
                             ),
                             onPressed: () {
                               // 最初の画面（通常はサインイン/ホーム）まで戻る
-                              Navigator.of(context).popUntil((route) => route.isFirst);
+                              Navigator.of(context)
+                                  .popUntil((route) => route.isFirst);
                             },
                             child: const Text('ホームに戻る'),
                           ),

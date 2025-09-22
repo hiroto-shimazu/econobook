@@ -12,7 +12,7 @@ class SignInScreen extends StatefulWidget {
 
 class _SignInScreenState extends State<SignInScreen> {
   final _email = TextEditingController();
-  final _pass  = TextEditingController();
+  final _pass = TextEditingController();
   bool _loading = false;
 
   @override
@@ -24,23 +24,24 @@ class _SignInScreenState extends State<SignInScreen> {
 
   Future<void> _signInWithEmailPassword() async {
     final email = _email.text.trim();
-    final pass  = _pass.text;
+    final pass = _pass.text;
     if (email.isEmpty || pass.isEmpty) {
       _toast('メールアドレスとパスワードを入力してください');
       return;
     }
     setState(() => _loading = true);
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pass);
+      await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: pass);
       // 成功時は AuthGate が Home に切り替え
     } on FirebaseAuthException catch (e) {
       final msg = switch (e.code) {
-        'invalid-email'     => 'メールアドレスの形式が正しくありません',
-        'user-disabled'     => 'このユーザーは無効化されています',
-        'user-not-found'    => 'ユーザーが見つかりません',
-        'wrong-password'    => 'パスワードが違います',
+        'invalid-email' => 'メールアドレスの形式が正しくありません',
+        'user-disabled' => 'このユーザーは無効化されています',
+        'user-not-found' => 'ユーザーが見つかりません',
+        'wrong-password' => 'パスワードが違います',
         'too-many-requests' => '試行回数が多すぎます。しばらくして再試行してください',
-        _                   => 'ログインに失敗しました (${e.code})',
+        _ => 'ログインに失敗しました (${e.code})',
       };
       _toast(msg);
     } catch (e) {
@@ -100,11 +101,13 @@ class _SignInScreenState extends State<SignInScreen> {
                       // もしアセット未読込みでもUIを壊さないフォールバック
                       errorBuilder: (_, __, ___) => const Text(
                         'EconoBook',
-                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: brandBlue),
+                        style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w800,
+                            color: brandBlue),
                       ),
                     ),
                     const SizedBox(height: 24),
-
 
                     // メール
                     TextField(
@@ -113,19 +116,25 @@ class _SignInScreenState extends State<SignInScreen> {
                       decoration: InputDecoration(
                         hintText: 'メールアドレス',
                         prefixIcon: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: ShaderMask(
-                          shaderCallback: (Rect bounds) => const LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
-                          ).createShader(bounds),
-                          blendMode: BlendMode.srcIn,
-                          child: const Icon(Icons.email, size: 22, color: Colors.white),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: ShaderMask(
+                            shaderCallback: (Rect bounds) =>
+                                const LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                Color(0xFFE53935),
+                                Color(0xFF0D80F2)
+                              ], // 赤→青
+                            ).createShader(bounds),
+                            blendMode: BlendMode.srcIn,
+                            child: const Icon(Icons.email,
+                                size: 22, color: Colors.white),
                           ),
                         ),
                         // アイコンの表示領域を確保（潰れ防止）
-                        prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                        prefixIconConstraints:
+                            const BoxConstraints(minWidth: 44, minHeight: 44),
                         filled: true,
                         fillColor: const Color(0xFFF0F2F5),
                         border: OutlineInputBorder(
@@ -134,9 +143,11 @@ class _SignInScreenState extends State<SignInScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: brandBlue, width: 2),
+                          borderSide:
+                              const BorderSide(color: brandBlue, width: 2),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                            vertical: 18, horizontal: 16),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -148,18 +159,24 @@ class _SignInScreenState extends State<SignInScreen> {
                       decoration: InputDecoration(
                         hintText: 'パスワード',
                         prefixIcon: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: ShaderMask(
-                          shaderCallback: (Rect bounds) => const LinearGradient(
-                            begin: Alignment.centerLeft,
-                            end: Alignment.centerRight,
-                            colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
-                          ).createShader(bounds),
-                          blendMode: BlendMode.srcIn,
-                          child: const Icon(Icons.lock, size: 22, color: Colors.white),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: ShaderMask(
+                            shaderCallback: (Rect bounds) =>
+                                const LinearGradient(
+                              begin: Alignment.centerLeft,
+                              end: Alignment.centerRight,
+                              colors: [
+                                Color(0xFFE53935),
+                                Color(0xFF0D80F2)
+                              ], // 赤→青
+                            ).createShader(bounds),
+                            blendMode: BlendMode.srcIn,
+                            child: const Icon(Icons.lock,
+                                size: 22, color: Colors.white),
                           ),
                         ),
-                        prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                        prefixIconConstraints:
+                            const BoxConstraints(minWidth: 44, minHeight: 44),
                         filled: true,
                         fillColor: const Color(0xFFF0F2F5),
                         border: OutlineInputBorder(
@@ -168,21 +185,27 @@ class _SignInScreenState extends State<SignInScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: brandBlue, width: 2),
+                          borderSide:
+                              const BorderSide(color: brandBlue, width: 2),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                            vertical: 18, horizontal: 16),
                       ),
                     ),
                     const SizedBox(height: 8),
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
-                        onPressed: _loading ? null : () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
-                          );
-                        },
+                        onPressed: _loading
+                            ? null
+                            : () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const ResetPasswordScreen()),
+                                );
+                              },
                         child: const Text('パスワードをお忘れですか？'),
                       ),
                     ),
@@ -197,9 +220,13 @@ class _SignInScreenState extends State<SignInScreen> {
                           gradient: const LinearGradient(
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
-                            colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+                            colors: [
+                              Color(0xFFE53935),
+                              Color(0xFF0D80F2)
+                            ], // 赤→青
                           ),
-                          borderRadius: BorderRadius.circular(28), // height/2 と同じ
+                          borderRadius:
+                              BorderRadius.circular(28), // height/2 と同じ
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(28),
@@ -210,14 +237,17 @@ class _SignInScreenState extends State<SignInScreen> {
                               surfaceTintColor: Colors.transparent,
                               foregroundColor: Colors.white,
                               shape: const StadiumBorder(),
-                              textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              textStyle: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16),
                             ),
-                            onPressed: _loading ? null : _signInWithEmailPassword,
+                            onPressed:
+                                _loading ? null : _signInWithEmailPassword,
                             child: _loading
                                 ? const SizedBox(
                                     width: 22,
                                     height: 22,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2, color: Colors.white),
                                   )
                                 : const Text('ログイン'),
                           ),
@@ -236,7 +266,10 @@ class _SignInScreenState extends State<SignInScreen> {
                           gradient: const LinearGradient(
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
-                            colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+                            colors: [
+                              Color(0xFFE53935),
+                              Color(0xFF0D80F2)
+                            ], // 赤→青
                           ),
                           borderRadius: BorderRadius.circular(28),
                         ),
@@ -247,12 +280,16 @@ class _SignInScreenState extends State<SignInScreen> {
                             shape: const StadiumBorder(),
                             child: InkWell(
                               borderRadius: BorderRadius.circular(28),
-                              onTap: _loading ? null : () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const SignUpScreen()),
-                                );
-                              },
+                              onTap: _loading
+                                  ? null
+                                  : () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) =>
+                                                const SignUpScreen()),
+                                      );
+                                    },
                               child: const Center(
                                 child: Text(
                                   'アカウントを作成',
@@ -274,7 +311,8 @@ class _SignInScreenState extends State<SignInScreen> {
                         Expanded(child: Divider()),
                         Padding(
                           padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('または', style: TextStyle(color: Colors.grey)),
+                          child:
+                              Text('または', style: TextStyle(color: Colors.grey)),
                         ),
                         Expanded(child: Divider()),
                       ],
@@ -286,12 +324,15 @@ class _SignInScreenState extends State<SignInScreen> {
                       onPressed: _loading ? null : _signInWithGoogleWeb,
                       icon: Image.network(
                         'https://lh3.googleusercontent.com/aida-public/AB6AXuB7_dG36PMz-QycJ2aSlMvoBFhKgUNCYMfLCb6SUVkWNScZUgT2PcE2Lvq2PB-MucrqJxnGNJ6fb629xiUYx9qoBIXeghkm60g0i9iTwgZ-c3b0v_A104kwxgbNXF9S_B6m4htpUEJxxwn9f9LukpOEugd84THjlFC1fjZlaO4-YWZCVe7QOrQMQmcTqAc_c_MI92b5McG90u4uL7_2ab5_JoWZx9P6YkCfZJhCXes9k1VUlbPn_AjNuXGGdKv6vPMn1sdfOepS8Oke',
-                        width: 20, height: 20, errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                        width: 20,
+                        height: 20,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                       ),
                       label: const Text('Googleでログイン'),
                       style: OutlinedButton.styleFrom(
                         minimumSize: const Size.fromHeight(56),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
                   ],

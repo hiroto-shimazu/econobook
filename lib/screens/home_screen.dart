@@ -24,7 +24,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _index = 0; // 0: Home, 1: Communities, 2: Wallet, 3: News, 4: Account ← 既定をホームに
+  int _index =
+      0; // 0: Home, 1: Communities, 2: Wallet, 3: News, 4: Account ← 既定をホームに
 
   // ---- Home mock state ----
   final TextEditingController _search = TextEditingController();
@@ -50,7 +51,8 @@ class _HomeScreenState extends State<HomeScreen> {
           fit: BoxFit.contain,
           errorBuilder: (_, __, ___) => Text(
             'EconoBook',
-            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: kBrandBlue),
+            style: TextStyle(
+                fontSize: 26, fontWeight: FontWeight.w800, color: kBrandBlue),
           ),
         ),
         actions: [
@@ -77,11 +79,11 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _index,
         children: [
-          _homeMock(context),                      // 0: Home (kept here)
-          CommunitiesScreen(user: widget.user),    // 1: Communities
-          WalletScreen(user: widget.user),         // 2: Wallet
-          NewsScreen(),                            // 3: News
-          AccountScreen(user: widget.user),        // 4: Account
+          _homeMock(context), // 0: Home (kept here)
+          CommunitiesScreen(user: widget.user), // 1: Communities
+          WalletScreen(user: widget.user), // 2: Wallet
+          NewsScreen(), // 3: News
+          AccountScreen(user: widget.user), // 4: Account
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -139,13 +141,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: ShaderMask(
                   shaderCallback: (Rect b) => kBrandGrad.createShader(b),
                   blendMode: BlendMode.srcIn,
-                  child: const Icon(Icons.search, size: 22, color: Colors.white),
+                  child:
+                      const Icon(Icons.search, size: 22, color: Colors.white),
                 ),
               ),
-              prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+              prefixIconConstraints:
+                  const BoxConstraints(minWidth: 44, minHeight: 44),
               filled: true,
               fillColor: kLightGray,
-              contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide.none,
@@ -163,7 +168,8 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
             children: const [
-              Text('やること', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('やること',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
         ),
@@ -201,11 +207,13 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: FilledButton.styleFrom(
                           backgroundColor: Colors.transparent,
                           foregroundColor: Colors.white,
-                          textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                          textStyle:
+                              const TextStyle(fontWeight: FontWeight.bold),
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           minimumSize: const Size(0, 36),
                         ),
-                        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                        onPressed: () =>
+                            ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('承認キュー（準備中）')),
                         ),
                         child: const Text('レビュー'),
@@ -222,7 +230,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 trailing: ShaderMask(
                   shaderCallback: (Rect b) => kBrandGrad.createShader(b),
                   blendMode: BlendMode.srcIn,
-                  child: const Icon(Icons.arrow_forward_ios, color: Colors.white),
+                  child:
+                      const Icon(Icons.arrow_forward_ios, color: Colors.white),
                 ),
                 onTap: () => ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('請求書（準備中）')),
@@ -240,7 +249,8 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
             children: const [
-              Text('通知', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('通知',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
         ),
@@ -251,17 +261,21 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           title: const Text('Liam があなたの投稿にコメントしました'),
-          subtitle: const Text('「良さそうなプランだね！」', style: TextStyle(color: Colors.black54)),
+          subtitle: const Text('「良さそうなプランだね！」',
+              style: TextStyle(color: Colors.black54)),
           onTap: () {},
         ),
         ListTile(
           leading: Container(
-            width: 44, height: 44,
-            decoration: BoxDecoration(color: kLightGray, borderRadius: BorderRadius.circular(12)),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+                color: kLightGray, borderRadius: BorderRadius.circular(12)),
             child: const Icon(Icons.schedule),
           ),
           title: const Text('請求書 #123 の期限が近づいています'),
-          subtitle: const Text('2日後に期限 / 送付先: Acme Corp', style: TextStyle(color: Colors.black54)),
+          subtitle: const Text('2日後に期限 / 送付先: Acme Corp',
+              style: TextStyle(color: Colors.black54)),
           onTap: () {},
         ),
 
@@ -273,7 +287,8 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
             children: const [
-              Text('最近のアクティビティ', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('最近のアクティビティ',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
         ),
@@ -284,17 +299,21 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           title: const Text('Sophia が ¥3,800 のレシートを共有しました'),
-          subtitle: const Text('「週末旅行」より', style: TextStyle(color: Colors.black54)),
+          subtitle:
+              const Text('「週末旅行」より', style: TextStyle(color: Colors.black54)),
           onTap: () {},
         ),
         ListTile(
           leading: Container(
-            width: 44, height: 44,
-            decoration: BoxDecoration(color: kLightGray, borderRadius: BorderRadius.circular(12)),
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+                color: kLightGray, borderRadius: BorderRadius.circular(12)),
             child: const Icon(Icons.trending_down),
           ),
           title: const Text('信用スコアが 10 ポイント下がりました'),
-          subtitle: const Text('新しい照会が登録されました', style: TextStyle(color: Colors.black54)),
+          subtitle: const Text('新しい照会が登録されました',
+              style: TextStyle(color: Colors.black54)),
           onTap: () {},
         ),
 
@@ -309,7 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
   static Widget _AvatarStack({required List<String> urls}) {
     final double base = 40; // 直径（36）+ 枠線2px*2 ≈ 40
     final double overlap = 24; // 重なり量
-    final double width = urls.isEmpty ? base : base + (urls.length - 1) * overlap;
+    final double width =
+        urls.isEmpty ? base : base + (urls.length - 1) * overlap;
 
     return SizedBox(
       height: base,
@@ -337,9 +357,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
-
-
   Widget _segTab(String label, String value) {
     final selected = _scope == value;
     final color = selected ? kBrandBlue : Colors.grey[600];
@@ -351,12 +368,15 @@ class _HomeScreenState extends State<HomeScreen> {
           alignment: Alignment.center,
           decoration: BoxDecoration(
             border: Border(
-              bottom: BorderSide(color: selected ? kBrandBlue : Colors.transparent, width: 2),
+              bottom: BorderSide(
+                  color: selected ? kBrandBlue : Colors.transparent, width: 2),
             ),
           ),
           child: Text(
             label,
-            style: TextStyle(color: color, fontWeight: selected ? FontWeight.w600 : FontWeight.normal),
+            style: TextStyle(
+                color: color,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.normal),
           ),
         ),
       ),
@@ -386,9 +406,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Text(it.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      child: Text(it.title,
+                          style: const TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.w700)),
                     ),
-                    Text('${_formatAmount(it.amount)} ${it.currency}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text('${_formatAmount(it.amount)} ${it.currency}',
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
                   ],
                 ),
                 const SizedBox(height: 6),
@@ -409,8 +432,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(it.line1, style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color)),
-                              Text(it.line2, style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                              Text(it.line1,
+                                  style: TextStyle(
+                                      color: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.color)),
+                              Text(it.line2,
+                                  style: TextStyle(
+                                      color: Colors.grey[600], fontSize: 12)),
                             ],
                           ),
                         ],
@@ -420,14 +450,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(it.time, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                        Text(it.time,
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.grey)),
                         if (it.unread > 0) ...[
                           const SizedBox(width: 8),
                           Container(
-                            width: 22, height: 22,
-                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                            width: 22,
+                            height: 22,
+                            decoration: const BoxDecoration(
+                                color: Colors.red, shape: BoxShape.circle),
                             alignment: Alignment.center,
-                            child: Text('${it.unread}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: Text('${it.unread}',
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold)),
                           ),
                         ],
                       ],
@@ -441,7 +479,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
 
   String _formatAmount(num n) {
     final s = n.toStringAsFixed(0);
@@ -479,7 +516,9 @@ class _TodoCard extends StatelessWidget {
       ),
       child: ListTile(
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: subtitle == null ? null : Text(subtitle!, style: const TextStyle(color: Colors.black54)),
+        subtitle: subtitle == null
+            ? null
+            : Text(subtitle!, style: const TextStyle(color: Colors.black54)),
         trailing: trailing,
         onTap: onTap,
       ),

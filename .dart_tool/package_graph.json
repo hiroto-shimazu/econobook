@@ -13,7 +13,16 @@
         "flutter",
         "google_sign_in"
       ],
-      "devDependencies": []
+      "devDependencies": [
+        "flutter_lints"
+      ]
+    },
+    {
+      "name": "flutter_lints",
+      "version": "6.0.0",
+      "dependencies": [
+        "lints"
+      ]
     },
     {
       "name": "cloud_firestore",
@@ -72,6 +81,11 @@
         "sky_engine",
         "vector_math"
       ]
+    },
+    {
+      "name": "lints",
+      "version": "6.0.0",
+      "dependencies": []
     },
     {
       "name": "meta",

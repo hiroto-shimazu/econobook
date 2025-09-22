@@ -10,19 +10,26 @@ class ContactFormScreen extends StatefulWidget {
 
 class _ContactFormScreenState extends State<ContactFormScreen> {
   final _name = TextEditingController();
-  final _email = TextEditingController(text: FirebaseAuth.instance.currentUser?.email ?? '');
+  final _email = TextEditingController(
+      text: FirebaseAuth.instance.currentUser?.email ?? '');
   final _body = TextEditingController();
   bool _loading = false;
 
   @override
-  void dispose() { _name.dispose(); _email.dispose(); _body.dispose(); super.dispose(); }
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _body.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
     final name = _name.text.trim();
     final email = _email.text.trim();
     final body = _body.text.trim();
     if (email.isEmpty || body.isEmpty) {
-      _toast('メールアドレスとお問い合わせ内容を入力してください'); return;
+      _toast('メールアドレスとお問い合わせ内容を入力してください');
+      return;
     }
     setState(() => _loading = true);
     try {
@@ -45,24 +52,33 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
     }
   }
 
-  void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  void _toast(String m) =>
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
 
   @override
   Widget build(BuildContext context) {
     const grad = LinearGradient(
-      begin: Alignment.centerLeft, end: Alignment.centerRight,
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
       colors: [Color(0xFFE53935), Color(0xFF0D80F2)],
     );
     return Scaffold(
-      appBar: AppBar(title: const Text('お問い合わせ'), backgroundColor: Colors.white, elevation: 0),
+      appBar: AppBar(
+          title: const Text('お問い合わせ'),
+          backgroundColor: Colors.white,
+          elevation: 0),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(children: [
-            TextField(controller: _name, decoration: const InputDecoration(labelText: 'お名前（任意）')),
+            TextField(
+                controller: _name,
+                decoration: const InputDecoration(labelText: 'お名前（任意）')),
             const SizedBox(height: 12),
-            TextField(controller: _email, keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(labelText: 'メールアドレス')),
+            TextField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(labelText: 'メールアドレス')),
             const SizedBox(height: 12),
             Expanded(
               child: TextField(
@@ -87,28 +103,36 @@ class _ContactFormScreenState extends State<ContactFormScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF0D80F2), width: 2),
+                    borderSide:
+                        const BorderSide(color: Color(0xFF0D80F2), width: 2),
                   ),
                 ),
               ),
             ),
             const SizedBox(height: 12),
             SizedBox(
-              width: double.infinity, height: 56,
+              width: double.infinity,
+              height: 56,
               child: DecoratedBox(
-                decoration: BoxDecoration(gradient: grad, borderRadius: BorderRadius.circular(28)),
+                decoration: BoxDecoration(
+                    gradient: grad, borderRadius: BorderRadius.circular(28)),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(28),
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: Colors.transparent, foregroundColor: Colors.white,
-                      shadowColor: Colors.transparent, textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                      backgroundColor: Colors.transparent,
+                      foregroundColor: Colors.white,
+                      shadowColor: Colors.transparent,
+                      textStyle: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     onPressed: _loading ? null : _submit,
                     child: _loading
-                      ? const SizedBox(width: 22, height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Text('送信'),
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Text('送信'),
                   ),
                 ),
               ),

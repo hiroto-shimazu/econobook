@@ -20,7 +20,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   void dispose() {
-    _name.dispose(); _email.dispose(); _pass.dispose(); _pass2.dispose();
+    _name.dispose();
+    _email.dispose();
+    _pass.dispose();
+    _pass2.dispose();
     super.dispose();
   }
 
@@ -31,10 +34,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final pass2 = _pass2.text;
 
     if (name.isEmpty || email.isEmpty || pass.isEmpty || pass2.isEmpty) {
-      _toast('未入力の項目があります'); return;
+      _toast('未入力の項目があります');
+      return;
     }
-    if (pass != pass2) { _toast('パスワードが一致しません'); return; }
-    if (pass.length < 6) { _toast('パスワードは6文字以上にしてください'); return; }
+    if (pass != pass2) {
+      _toast('パスワードが一致しません');
+      return;
+    }
+    if (pass.length < 6) {
+      _toast('パスワードは6文字以上にしてください');
+      return;
+    }
 
     setState(() => _loading = true);
     try {
@@ -42,7 +52,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
           .createUserWithEmailAndPassword(email: email, password: pass)
           .timeout(const Duration(seconds: 20));
 
-      await cred.user?.updateDisplayName(name).timeout(const Duration(seconds: 10));
+      await cred.user
+          ?.updateDisplayName(name)
+          .timeout(const Duration(seconds: 10));
 
       await FirebaseFirestore.instance.doc('users/${cred.user!.uid}').set({
         'name': name,
@@ -58,10 +70,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
     } on FirebaseAuthException catch (e) {
       final msg = switch (e.code) {
         'email-already-in-use' => 'このメールアドレスは既に使用されています',
-        'invalid-email'        => 'メールアドレスの形式が正しくありません',
-        'weak-password'        => 'パスワードが弱すぎます',
-        'operation-not-allowed'=> 'Email/Password が無効です（Consoleで有効化してください）',
-        _                      => '作成に失敗しました (${e.code})',
+        'invalid-email' => 'メールアドレスの形式が正しくありません',
+        'weak-password' => 'パスワードが弱すぎます',
+        'operation-not-allowed' => 'Email/Password が無効です（Consoleで有効化してください）',
+        _ => '作成に失敗しました (${e.code})',
       };
       _toast(msg);
     } catch (e) {
@@ -113,12 +125,24 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    _Field(label: '名前', hint: 'あなたの名前', controller: _name,
-                        fill: lightGray, primary: textPrimary, secondary: textSecondary, brand: brandBlue),
+                    _Field(
+                        label: '名前',
+                        hint: 'あなたの名前',
+                        controller: _name,
+                        fill: lightGray,
+                        primary: textPrimary,
+                        secondary: textSecondary,
+                        brand: brandBlue),
                     const SizedBox(height: 16),
-                    _Field(label: 'メールアドレス', hint: 'your@email.com', controller: _email,
+                    _Field(
+                        label: 'メールアドレス',
+                        hint: 'your@email.com',
+                        controller: _email,
                         keyboard: TextInputType.emailAddress,
-                        fill: lightGray, primary: textPrimary, secondary: textSecondary, brand: brandBlue),
+                        fill: lightGray,
+                        primary: textPrimary,
+                        secondary: textSecondary,
+                        brand: brandBlue),
                     const SizedBox(height: 16),
                     // パスワード
                     TextField(
@@ -130,21 +154,30 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         prefixIcon: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: ShaderMask(
-                            shaderCallback: (Rect bounds) => const LinearGradient(
+                            shaderCallback: (Rect bounds) =>
+                                const LinearGradient(
                               begin: Alignment.centerLeft,
                               end: Alignment.centerRight,
-                              colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+                              colors: [
+                                Color(0xFFE53935),
+                                Color(0xFF0D80F2)
+                              ], // 赤→青
                             ).createShader(bounds),
                             blendMode: BlendMode.srcIn,
-                            child: const Icon(Icons.lock, size: 22, color: Colors.white),
+                            child: const Icon(Icons.lock,
+                                size: 22, color: Colors.white),
                           ),
                         ),
                         suffixIcon: IconButton(
-                          onPressed: () => setState(() => _showPass = !_showPass),
-                          icon: Icon(_showPass ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () =>
+                              setState(() => _showPass = !_showPass),
+                          icon: Icon(_showPass
+                              ? Icons.visibility_off
+                              : Icons.visibility),
                           tooltip: _showPass ? '非表示' : '表示',
                         ),
-                        prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                        prefixIconConstraints:
+                            const BoxConstraints(minWidth: 44, minHeight: 44),
                         filled: true,
                         fillColor: const Color(0xFFF0F2F5),
                         border: OutlineInputBorder(
@@ -153,9 +186,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: brandBlue, width: 2),
+                          borderSide:
+                              const BorderSide(color: brandBlue, width: 2),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                            vertical: 18, horizontal: 16),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -169,21 +204,30 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         prefixIcon: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: ShaderMask(
-                            shaderCallback: (Rect bounds) => const LinearGradient(
+                            shaderCallback: (Rect bounds) =>
+                                const LinearGradient(
                               begin: Alignment.centerLeft,
                               end: Alignment.centerRight,
-                              colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+                              colors: [
+                                Color(0xFFE53935),
+                                Color(0xFF0D80F2)
+                              ], // 赤→青
                             ).createShader(bounds),
                             blendMode: BlendMode.srcIn,
-                            child: const Icon(Icons.lock_outline, size: 22, color: Colors.white),
+                            child: const Icon(Icons.lock_outline,
+                                size: 22, color: Colors.white),
                           ),
                         ),
                         suffixIcon: IconButton(
-                          onPressed: () => setState(() => _showPass2 = !_showPass2),
-                          icon: Icon(_showPass2 ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () =>
+                              setState(() => _showPass2 = !_showPass2),
+                          icon: Icon(_showPass2
+                              ? Icons.visibility_off
+                              : Icons.visibility),
                           tooltip: _showPass2 ? '非表示' : '表示',
                         ),
-                        prefixIconConstraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                        prefixIconConstraints:
+                            const BoxConstraints(minWidth: 44, minHeight: 44),
                         filled: true,
                         fillColor: const Color(0xFFF0F2F5),
                         border: OutlineInputBorder(
@@ -192,9 +236,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: brandBlue, width: 2),
+                          borderSide:
+                              const BorderSide(color: brandBlue, width: 2),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                            vertical: 18, horizontal: 16),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -226,14 +272,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         surfaceTintColor: Colors.transparent,
                         foregroundColor: Colors.white,
                         shape: const StadiumBorder(),
-                        textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        textStyle: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                       onPressed: _loading ? null : _createAccount,
                       child: _loading
                           ? const SizedBox(
                               width: 22,
                               height: 22,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
                             )
                           : const Text('アカウントを作成'),
                     ),
@@ -273,7 +321,9 @@ class _Field extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: secondary)),
+        Text(label,
+            style: TextStyle(
+                fontSize: 13, fontWeight: FontWeight.w600, color: secondary)),
         const SizedBox(height: 8),
         TextField(
           controller: controller,
@@ -283,7 +333,8 @@ class _Field extends StatelessWidget {
             hintText: hint,
             filled: true,
             fillColor: fill,
-            contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: BorderSide.none,
