@@ -28,6 +28,11 @@ int _chatCompareJoinedDesc(Map<String, dynamic> a, Map<String, dynamic> b) {
   return bDate.compareTo(aDate);
 }
 
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
 String? _formatChatTimestamp(DateTime? time) {
   if (time == null) return null;
   final now = DateTime.now();
@@ -40,6 +45,39 @@ String? _formatChatTimestamp(DateTime? time) {
 }
 
 class CommunityChatScreen extends StatelessWidget {
+=======
+String _formatChatTimestamp(DateTime? value) {
+  if (value == null) return '';
+  final local = value.toLocal();
+  final now = DateTime.now();
+  final hours = local.hour.toString().padLeft(2, '0');
+  final minutes = local.minute.toString().padLeft(2, '0');
+  final time = '$hours:$minutes';
+  final isSameDay = local.year == now.year &&
+      local.month == now.month &&
+      local.day == now.day;
+  if (isSameDay) {
+    return time;
+  }
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '$month/$day $time';
+}
+
+class CommunityChatScreen extends StatefulWidget {
+>>>>>>> theirs
+=======
+class CommunityChatScreen extends StatelessWidget {
+>>>>>>> theirs
+=======
+class CommunityChatScreen extends StatelessWidget {
+>>>>>>> theirs
+=======
+class CommunityChatScreen extends StatelessWidget {
+>>>>>>> theirs
+=======
+class CommunityChatScreen extends StatelessWidget {
+>>>>>>> theirs
   const CommunityChatScreen({
     super.key,
     required this.communityId,
@@ -70,11 +108,28 @@ class CommunityChatScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
     final membersStream = FirebaseFirestore.instance
         .collection('memberships')
         .where('cid', isEqualTo: communityId)
         .snapshots();
 
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
     final threadsStream = FirebaseFirestore.instance
         .collection('community_chats')
         .doc(communityId)
@@ -85,6 +140,31 @@ class CommunityChatScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
+=======
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+>>>>>>> theirs
+=======
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+>>>>>>> theirs
+=======
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+>>>>>>> theirs
+=======
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+>>>>>>> theirs
+=======
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+>>>>>>> theirs
         backgroundColor: Colors.white,
         elevation: 0,
         title: Text(
@@ -106,6 +186,11 @@ class CommunityChatScreen extends StatelessWidget {
           )
         ],
       ),
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: membersStream,
         builder: (context, snapshot) {
@@ -220,6 +305,131 @@ class CommunityChatScreen extends StatelessWidget {
                           threadPreview: thread,
                         );
                       },
+=======
+    );
+  }
+
+  Widget _buildMembersTab() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            'メンバー',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+=======
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Text(
+              'メンバーとトーク',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              'メンバーを選択してチャットを開始します。チャット機能は近日アップデート予定です。',
+              style: TextStyle(color: Colors.black54),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: membersStream,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('メンバーを取得できませんでした: ${snapshot.error}'),
+                  );
+                }
+                final docs = snapshot.data?.docs ?? [];
+                final sortedDocs = docs.toList()
+                  ..sort((a, b) => _chatCompareJoinedDesc(a.data(), b.data()));
+                if (sortedDocs.isEmpty) {
+                  return const Center(child: Text('メンバーがまだいません'));
+                }
+                return ListView.builder(
+                  itemCount: sortedDocs.length,
+                  itemBuilder: (context, index) {
+                    final data = sortedDocs[index].data();
+                    final uid = (data['uid'] as String?) ?? 'unknown';
+                    final role = (data['role'] as String?) ?? 'member';
+                    final displayName = uid == user.uid ? 'あなた' : uid;
+                    final isCentralBank = uid == kCentralBankUid;
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.blue.shade100,
+                        child: Text(
+                          displayName.characters.first.toUpperCase(),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      title: Text(displayName,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text(_roleLabel(role, isCentralBank)),
+                      trailing: const Icon(Icons.chat_bubble_outline),
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('$displayName とのチャットは準備中です'),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Color(0x11000000))),
+              color: Colors.white,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    enabled: false,
+                    decoration: InputDecoration(
+                      hintText: 'メッセージ機能は準備中です',
+                      filled: true,
+                      fillColor: Colors.grey.shade200,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 16),
+>>>>>>> theirs
                     ),
                   ),
                 ],
@@ -312,6 +522,7 @@ class _MemberChatTile extends StatelessWidget {
                   timeLabel,
                   style: const TextStyle(fontSize: 11, color: Colors.black45),
                 ),
+<<<<<<< ours
               if (unreadCount > 0) ...[
                 const SizedBox(height: 4),
                 Container(
@@ -327,6 +538,22 @@ class _MemberChatTile extends StatelessWidget {
                       color: Colors.white,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
+=======
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+>>>>>>> theirs
+=======
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+>>>>>>> theirs
+=======
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+>>>>>>> theirs
+=======
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+>>>>>>> theirs
                     ),
                   ),
                 ),
@@ -348,6 +575,27 @@ class _MemberChatTile extends StatelessWidget {
           },
         );
       },
+=======
+                const SizedBox(width: 12),
+                IconButton(
+                  tooltip: 'メッセージを送信',
+                  icon: const Icon(Icons.send, color: Colors.grey),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('チャット機能は開発中です')),
+                    );
+                  },
+                ),
+              ],
+            ),
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+<<<<<<< ours
+          ),
+        )
+      ],
+>>>>>>> theirs
     );
   }
 }
@@ -358,6 +606,7 @@ class _MemberAvatar extends StatelessWidget {
   final String name;
   final String? photoUrl;
 
+<<<<<<< ours
   @override
   Widget build(BuildContext context) {
     final initial = name.isNotEmpty ? name.characters.first.toUpperCase() : '?';
@@ -372,5 +621,81 @@ class _MemberAvatar extends StatelessWidget {
             )
           : null,
     );
+=======
+  Future<void> _sendMessage() async {
+    if (_sending) return;
+    final text = _messageController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('メッセージを入力してください')),
+      );
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('community_chats')
+          .doc(widget.communityId)
+          .collection('messages')
+          .add({
+        'cid': widget.communityId,
+        'senderUid': widget.user.uid,
+        'text': text,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      _messageController.clear();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('メッセージの送信に失敗しました: $e')),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      _scrollToLatest();
+    }
+  }
+
+  void _scrollToLatest() {
+    if (!_messagesScrollController.hasClients) {
+      return;
+    }
+    _messagesScrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+=======
+          )
+        ],
+      ),
+>>>>>>> theirs
+=======
+          )
+        ],
+      ),
+>>>>>>> theirs
+=======
+          )
+        ],
+      ),
+>>>>>>> theirs
+=======
+          )
+        ],
+      ),
+>>>>>>> theirs
+    );
+  }
+
+  static String _roleLabel(String role, bool isCentralBank) {
+    if (isCentralBank) return '中央銀行';
+    return switch (role) {
+      'owner' => 'オーナー',
+      'admin' => '管理者',
+      'mediator' => '仲介',
+      'pending' => '承認待ち',
+      _ => 'メンバー',
+    };
+>>>>>>> theirs
   }
 }

@@ -1,7 +1,5 @@
-2025/09/23-17:09:03.865 1060b Reusing MANIFEST /private/var/folders/gr/g31bt2qx37x9d0m_p3y6g75c0000gn/T/flutter_tools.7uM2iC/flutter_tools_chrome_device.rPSFsz/Default/shared_proto_db/MANIFEST-000001
-2025/09/23-17:09:03.865 1060b Recovering log #4
-2025/09/23-17:09:03.865 1060b Reusing old log /private/var/folders/gr/g31bt2qx37x9d0m_p3y6g75c0000gn/T/flutter_tools.7uM2iC/flutter_tools_chrome_device.rPSFsz/Default/shared_proto_db/000004.log 
-2025/09/23-17:09:03.866 1060b Delete type=0 #3
-2025/09/23-17:09:26.020 1060d Level-0 table #8: started
-2025/09/23-17:09:26.023 1060d Level-0 table #8: 124863 bytes OK
-2025/09/23-17:09:26.040 1060d Delete type=0 #4
+2025/09/23-19:57:29.075 3c2f0 Reusing MANIFEST /private/var/folders/gr/g31bt2qx37x9d0m_p3y6g75c0000gn/T/flutter_tools.HkjARz/flutter_tools_chrome_device.anm322/Default/shared_proto_db/MANIFEST-000001
+2025/09/23-19:57:29.076 3c2f0 Recovering log #7
+2025/09/23-19:57:29.076 3c2f0 Reusing old log /private/var/folders/gr/g31bt2qx37x9d0m_p3y6g75c0000gn/T/flutter_tools.HkjARz/flutter_tools_chrome_device.anm322/Default/shared_proto_db/000007.log 
+2025/09/23-19:57:29.076 3c2f0 Delete type=0 #4
+2025/09/23-19:57:29.076 3c2f0 Delete type=0 #3
