@@ -2,9 +2,11 @@ import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../constants/community.dart';
 import '../models/community.dart';
 import '../models/membership.dart';
 import 'firestore_refs.dart';
+import 'ledger_service.dart';
 
 class CommunityService {
   CommunityService({FirebaseFirestore? firestore})
@@ -22,6 +24,8 @@ class CommunityService {
     String? coverUrl,
     CommunityCurrency? currency,
     CommunityPolicy? policy,
+    CommunityVisibility? visibility,
+    CommunityTreasury? treasury,
   }) async {
     final firestore = refs.raw;
     // Use raw doc so we can set server timestamps in a single batch.
@@ -66,6 +70,8 @@ class CommunityService {
             postVisibilityDefault: 'community',
             requiresApproval: false,
           ),
+      visibility: visibility ?? const CommunityVisibility(balanceMode: 'private'),
+      treasury: treasury ?? const CommunityTreasury(balance: 0, initialGrant: 0),
     );
 
     final membership = Membership(
@@ -79,6 +85,7 @@ class CommunityService {
       lastStatementAt: null,
       monthlySummary: const {},
       canManageBank: true,
+      balanceVisible: true,
     );
 
     final batch = firestore.batch();
@@ -99,6 +106,7 @@ class CommunityService {
       'pending': false,
       'monthlySummary': const <String, dynamic>{},
       'canManageBank': true,
+      'balanceVisible': true,
     });
 
     await batch.commit();
@@ -163,15 +171,28 @@ class CommunityService {
     }
 
     final batch = refs.raw.batch();
+    final initialGrant = community.treasury.initialGrant;
+    num memberInitialBalance = 0;
+    DocumentReference<Map<String, dynamic>>? treasuryRef;
+    if (initialGrant > 0) {
+      treasuryRef = refs.raw.collection('communities').doc(community.id);
+      batch.update(treasuryRef, {
+        'treasury.balance': FieldValue.increment(-initialGrant),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      memberInitialBalance = initialGrant;
+    }
+
     batch.set(memberRef, {
       'cid': community.id,
       'uid': userId,
       'role': 'member',
-      'balance': 0,
+      'balance': memberInitialBalance,
       'pending': false,
       'joinedAt': FieldValue.serverTimestamp(),
       'monthlySummary': const <String, dynamic>{},
       'canManageBank': false,
+      'balanceVisible': community.visibility.balanceMode == 'everyone',
     });
     final communityDoc = refs.raw.collection('communities').doc(community.id);
     batch.update(communityDoc, {
@@ -386,5 +407,145 @@ class CommunityService {
     final random = Random.secure();
     return List.generate(length, (_) => chars[random.nextInt(chars.length)])
         .join();
+  }
+
+  Future<void> updateVisibilitySettings({
+    required String communityId,
+    required CommunityVisibility visibility,
+  }) async {
+    await refs.communityDoc(communityId).update({
+      'visibility': visibility.toMap(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final members = await refs.raw
+        .collection('memberships')
+        .where('cid', isEqualTo: communityId)
+        .get();
+    final batch = refs.raw.batch();
+    for (final doc in members.docs) {
+      final visible = switch (visibility.balanceMode) {
+        'everyone' => true,
+        'private' => false,
+        'custom' => visibility.customMembers.contains(doc['uid']),
+        _ => false,
+      };
+      batch.update(doc.reference, {'balanceVisible': visible});
+    }
+    await batch.commit();
+  }
+
+  Future<void> setMemberBalanceVisibility({
+    required String communityId,
+    required String memberUid,
+    required bool visible,
+  }) async {
+    final communityDoc = refs.communityDoc(communityId);
+    await refs.raw.runTransaction((tx) async {
+      final communitySnap = await tx.get(communityDoc);
+      final community = communitySnap.data();
+      final visibility = community?.visibility ??
+          const CommunityVisibility(balanceMode: 'private');
+      final updated = Set<String>.from(visibility.customMembers);
+      if (visible) {
+        updated.add(memberUid);
+      } else {
+        updated.remove(memberUid);
+      }
+      tx.update(communityDoc, {
+        'visibility.customMembers': updated.toList(),
+        'visibility.balanceMode': 'custom',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      final memberRef = refs.raw
+          .collection('memberships')
+          .doc(FirestoreRefs.membershipId(communityId, memberUid));
+      tx.update(memberRef, {'balanceVisible': visible});
+    });
+  }
+
+  Future<void> updateTreasurySettings({
+    required String communityId,
+    num? initialGrant,
+  }) async {
+    final updates = <String, Object?>{
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (initialGrant != null) {
+      updates['treasury.initialGrant'] = initialGrant;
+    }
+    if (updates.length > 1) {
+      await refs.communityDoc(communityId).update(updates);
+    }
+  }
+
+  Future<void> adjustTreasuryBalance({
+    required String communityId,
+    required num delta,
+  }) async {
+    final doc = await refs.communityDoc(communityId).get();
+    final data = doc.data();
+    final current = data?.treasury.balance ?? 0;
+    final next = current + delta;
+    if (next < 0) {
+      throw StateError('中央銀行の残高が不足しています');
+    }
+    await refs.communityDoc(communityId).update({
+      'treasury.balance': FieldValue.increment(delta),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> createLoan({
+    required String communityId,
+    required String borrowerUid,
+    required num amount,
+    String? memo,
+    required LedgerService ledger,
+    required String createdBy,
+  }) async {
+    if (amount <= 0) {
+      throw ArgumentError.value(amount, 'amount', 'Must be positive');
+    }
+
+    final loanRef = refs.raw
+        .collection('loans')
+        .doc(communityId)
+        .collection('items')
+        .doc();
+
+    await refs.raw.runTransaction((tx) async {
+      final communityDoc = refs.communityDoc(communityId);
+      final snap = await tx.get(communityDoc);
+      final community = snap.data();
+      final balance = community?.treasury.balance ?? 0;
+      if (balance < amount) {
+        throw StateError('中央銀行の残高が不足しています');
+      }
+      tx.update(communityDoc, {
+        'treasury.balance': FieldValue.increment(-amount),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      tx.set(loanRef, {
+        'cid': communityId,
+        'borrowerUid': borrowerUid,
+        'amount': amount,
+        'memo': memo,
+        'status': 'pending_transfer',
+        'createdAt': FieldValue.serverTimestamp(),
+        'createdBy': createdBy,
+      });
+    });
+
+    final entry = await ledger.recordTransfer(
+      communityId: communityId,
+      fromUid: kCentralBankUid,
+      toUid: borrowerUid,
+      amount: amount,
+      memo: memo ?? '中央銀行貸出',
+      createdBy: createdBy,
+    );
+
+    await loanRef.update({'status': 'active', 'ledgerEntryId': entry.id});
   }
 }

@@ -12,6 +12,7 @@ class Membership {
     required this.lastStatementAt,
     required this.monthlySummary,
     required this.canManageBank,
+    required this.balanceVisible,
   });
 
   final String id;
@@ -24,6 +25,7 @@ class Membership {
   final DateTime? lastStatementAt;
   final Map<String, dynamic> monthlySummary;
   final bool canManageBank;
+  final bool balanceVisible;
 
   factory Membership.fromSnapshot(DocumentSnapshot<Map<String, dynamic>> snap) {
     final data = snap.data() ?? <String, dynamic>{};
@@ -44,6 +46,7 @@ class Membership {
       monthlySummary: Map<String, dynamic>.from(
           (data['monthlySummary'] as Map?) ?? const {}),
       canManageBank: data['canManageBank'] == true,
+      balanceVisible: data['balanceVisible'] == true,
     );
   }
 
@@ -59,6 +62,7 @@ class Membership {
           lastStatementAt == null ? null : Timestamp.fromDate(lastStatementAt!),
       'monthlySummary': monthlySummary,
       'canManageBank': canManageBank,
+      'balanceVisible': balanceVisible,
     };
   }
 
@@ -70,6 +74,7 @@ class Membership {
     DateTime? lastStatementAt,
     Map<String, dynamic>? monthlySummary,
     bool? canManageBank,
+    bool? balanceVisible,
   }) {
     return Membership(
       id: id,
@@ -82,6 +87,7 @@ class Membership {
       lastStatementAt: lastStatementAt ?? this.lastStatementAt,
       monthlySummary: monthlySummary ?? this.monthlySummary,
       canManageBank: canManageBank ?? this.canManageBank,
+      balanceVisible: balanceVisible ?? this.balanceVisible,
     );
   }
 

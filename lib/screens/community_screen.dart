@@ -7,9 +7,8 @@ import 'package:flutter/services.dart';
 import '../constants/community.dart';
 import '../models/community.dart';
 import '../services/community_service.dart';
-import '../services/request_service.dart';
-import '../widgets/bank_panels.dart';
 import 'central_bank_screen.dart';
+import 'community_home_screen.dart';
 import 'community_create_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
 
@@ -128,7 +127,14 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                           subtitle:
                               members == null ? 'メンバー数 —' : 'メンバー ${members}人',
                           coverUrl: cover,
-                          onTap: () => _openCommunitySheet(
+                          onTap: () => CommunityHomeScreen.open(
+                            context,
+                            communityId: cid,
+                            communityPreview: community,
+                            membershipData: membershipData,
+                            user: widget.user,
+                          ),
+                          onInfo: () => _openCommunitySheet(
                             context,
                             cid,
                             membershipData,
@@ -266,6 +272,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     required String subtitle,
     String? coverUrl,
     VoidCallback? onTap,
+    VoidCallback? onInfo,
   }) {
     Widget leading;
     if (coverUrl != null && coverUrl.isNotEmpty) {
@@ -293,7 +300,19 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         leading: leading,
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(subtitle, style: const TextStyle(color: Colors.black54)),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: onInfo == null
+            ? const Icon(Icons.chevron_right)
+            : Wrap(
+                spacing: 4,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.info_outline, size: 20),
+                    tooltip: 'コミュニティ情報',
+                    onPressed: onInfo,
+                  ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
         onTap: onTap,
       ),
     );
@@ -575,7 +594,6 @@ class _CommunityDetailSheet extends StatelessWidget {
             final policy = CommunityPolicy.fromMap(
                 (data['policy'] as Map<String, dynamic>?) ?? const {});
             final communityService = CommunityService();
-            final requestService = RequestService();
             final hasBankPermission =
                 role == 'owner' || (membershipData['canManageBank'] == true);
             Future<void> handleBankSettings() async {
@@ -742,34 +760,26 @@ class _CommunityDetailSheet extends StatelessWidget {
                       const SizedBox(height: 24),
                       const _SectionHeader(title: '通貨・中央銀行設定'),
                       const SizedBox(height: 8),
-                      _CurrencyDetailsCard(
+                      _CentralBankLinkCard(
                         currency: currency,
-                        policy: policy,
-                        onEdit: handleBankSettings,
+                        requiresApproval: policy.requiresApproval,
+                        allowMinting: currency.allowMinting,
+                        onOpen: handleBankSettings,
                         canManage: hasBankPermission,
                       ),
                       if (!hasBankPermission) ...[
                         const SizedBox(height: 8),
-                        const Text('権限がない場合は「変更をリクエスト」から管理者へ依頼できます',
-                            style:
-                                TextStyle(fontSize: 12, color: Colors.black54)),
-                      ],
-                      if (hasBankPermission) ...[
-                        BankSettingRequestsPanel(
-                          communityId: communityId,
-                          service: communityService,
-                          resolverUid: user.uid,
-                          onOpenSettings: () => CentralBankScreen.open(
-                            context,
-                            communityId: communityId,
-                            communityName: name,
-                            user: user,
-                          ),
+                        const Text(
+                          '中央銀行の設定はウォレットから管理できます。必要な場合は変更をリクエストしてください。',
+                          style: TextStyle(fontSize: 12, color: Colors.black54),
                         ),
-                        CentralBankRequestsPanel(
-                          communityId: communityId,
-                          approverUid: user.uid,
-                          requestService: requestService,
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: handleBankSettings,
+                            icon: const Icon(Icons.outgoing_mail, size: 18),
+                            label: const Text('変更をリクエスト'),
+                          ),
                         ),
                       ],
                       const SizedBox(height: 24),
@@ -989,7 +999,8 @@ class _QuickActions extends StatelessWidget {
         if (onBankSettings != null)
           _QuickActionButton(
             icon: Icons.account_balance,
-            label: canManageBank ? '中央銀行設定' : '設定リクエスト',
+            label:
+                canManageBank ? '中央銀行（ウォレット）' : '中央銀行を見る',
             onTap: onBankSettings!,
           ),
       ],
@@ -1026,23 +1037,27 @@ class _QuickActionButton extends StatelessWidget {
   }
 }
 
-class _CurrencyDetailsCard extends StatelessWidget {
-  const _CurrencyDetailsCard({
+class _CentralBankLinkCard extends StatelessWidget {
+  const _CentralBankLinkCard({
     required this.currency,
-    required this.policy,
-    this.onEdit,
-    this.canManage = false,
+    required this.requiresApproval,
+    required this.allowMinting,
+    required this.onOpen,
+    required this.canManage,
   });
 
   final CommunityCurrency currency;
-  final CommunityPolicy policy;
-  final VoidCallback? onEdit;
+  final bool requiresApproval;
+  final bool allowMinting;
+  final VoidCallback onOpen;
   final bool canManage;
 
   @override
   Widget build(BuildContext context) {
-    final actionLabel = canManage ? '設定を変更' : '変更をリクエスト';
-    final actionIcon = canManage ? Icons.edit : Icons.outgoing_mail;
+    final actionLabel =
+        canManage ? '中央銀行を開く' : 'ウォレットで中央銀行を見る';
+    final actionIcon = canManage ? Icons.account_balance : Icons.open_in_new;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1053,36 +1068,28 @@ class _CurrencyDetailsCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _currencyRow('通貨名', currency.name),
-          _currencyRow('シンボル', currency.code),
-          _currencyRow('小数点以下桁数', '${currency.precision} 桁'),
-          _currencyRow(
-              '発行方式', currency.supplyModel == 'capped' ? '上限あり' : '無制限'),
-          if (currency.maxSupply != null)
-            _currencyRow('最大発行枚数', currency.maxSupply!.toString()),
-          _currencyRow('取引手数料', '${currency.txFeeBps / 100}%'),
-          if (currency.borrowLimitPerMember != null)
-            _currencyRow('メンバー借入上限', currency.borrowLimitPerMember!.toString()),
-          _currencyRow('年利', '${currency.interestBps / 100}%'),
-          _currencyRow('メンバーによる発行', currency.allowMinting ? '許可' : '管理者のみ'),
-          if (currency.expireDays != null)
-            _currencyRow('有効期限', '${currency.expireDays}日'),
-          _currencyRow('参加承認', policy.requiresApproval ? '承認必須' : '自動参加'),
-          if (onEdit != null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onEdit,
-                icon: Icon(actionIcon, size: 18),
-                label: Text(actionLabel),
-              ),
+          _infoRow('通貨', '${currency.name} (${currency.code})'),
+          _infoRow('小数点以下桁数', '${currency.precision} 桁'),
+          _infoRow(
+            'メンバーによる発行',
+            allowMinting ? '許可' : '管理者のみ',
+          ),
+          _infoRow('参加承認', requiresApproval ? '承認必須' : '自動参加'),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              onPressed: onOpen,
+              icon: Icon(actionIcon, size: 18),
+              label: Text(actionLabel),
             ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _currencyRow(String label, String value) {
+  Widget _infoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../constants/community.dart';
+import '../models/community.dart';
 import '../models/ledger_entry.dart';
 import '../models/membership.dart';
 import 'firestore_refs.dart';
@@ -40,8 +41,9 @@ class LedgerService {
 
     String? existingEntryId;
     final isCentralBankPayer = fromUid == kCentralBankUid;
-    if (toUid == kCentralBankUid) {
-      throw ArgumentError('中央銀行を受取側に指定することはできません');
+    final isCentralBankReceiver = toUid == kCentralBankUid;
+    if (isCentralBankPayer && isCentralBankReceiver) {
+      throw ArgumentError('中央銀行同士の取引は無効です');
     }
 
     await refs.raw.runTransaction((tx) async {
@@ -56,10 +58,16 @@ class LedgerService {
       if (!isCentralBankPayer) {
         fromRef = refs.membershipDoc(communityId, fromUid);
       }
-      final toRef = refs.membershipDoc(communityId, toUid);
-      final toSnap = await tx.get(toRef);
-      if (!toSnap.exists) {
-        throw StateError('Recipient is not a member of this community');
+      DocumentReference<Membership>? toRef;
+      if (!isCentralBankReceiver) {
+        toRef = refs.membershipDoc(communityId, toUid);
+      }
+
+      if (!isCentralBankReceiver) {
+        final toSnap = await tx.get(toRef!);
+        if (!toSnap.exists) {
+          throw StateError('Recipient is not a member of this community');
+        }
       }
       if (!isCentralBankPayer) {
         final fromSnap = await tx.get(fromRef!);
@@ -70,12 +78,40 @@ class LedgerService {
         if (enforceSufficientFunds && fromBalance < amount) {
           throw StateError('Insufficient balance');
         }
-        tx.update(fromRef!, {'balance': FieldValue.increment(-amount)});
       }
 
-      tx.update(toRef, {'balance': FieldValue.increment(amount)});
+      final communityDoc = refs.communityDoc(communityId);
+      if (isCentralBankPayer || isCentralBankReceiver) {
+        final communitySnap = await tx.get(communityDoc);
+        final treasury = communitySnap.data()?.treasury ??
+            const CommunityTreasury(balance: 0, initialGrant: 0);
+        if (isCentralBankPayer && treasury.balance < amount) {
+          throw StateError('中央銀行の残高が不足しています');
+        }
+      }
 
-      final entryType = isCentralBankPayer ? 'central_bank' : 'transfer';
+      if (!isCentralBankPayer) {
+        tx.update(fromRef!, {'balance': FieldValue.increment(-amount)});
+      }
+      if (!isCentralBankReceiver) {
+        tx.update(toRef!, {'balance': FieldValue.increment(amount)});
+      }
+
+      if (isCentralBankPayer) {
+        tx.update(communityDoc, {
+          'treasury.balance': FieldValue.increment(-amount),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      if (isCentralBankReceiver) {
+        tx.update(communityDoc, {
+          'treasury.balance': FieldValue.increment(amount),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      final entryType =
+          isCentralBankPayer || isCentralBankReceiver ? 'central_bank' : 'transfer';
       tx.set(ledgerRef, {
         'cid': communityId,
         'type': entryType,

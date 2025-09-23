@@ -16,6 +16,8 @@ class Community {
     required this.updatedAt,
     required this.currency,
     required this.policy,
+    required this.visibility,
+    required this.treasury,
   });
 
   final String id;
@@ -32,6 +34,8 @@ class Community {
   final DateTime? updatedAt;
   final CommunityCurrency currency;
   final CommunityPolicy policy;
+  final CommunityVisibility visibility;
+  final CommunityTreasury treasury;
 
   factory Community.fromSnapshot(DocumentSnapshot<Map<String, dynamic>> snap) {
     final data = snap.data() ?? <String, dynamic>{};
@@ -57,6 +61,10 @@ class Community {
       updatedAt: _toDate(data['updatedAt']),
       currency: CommunityCurrency.fromMap(currencyMap),
       policy: CommunityPolicy.fromMap(policyMap),
+      visibility: CommunityVisibility.fromMap(
+          (data['visibility'] as Map<String, dynamic>?) ?? const {}),
+      treasury:
+          CommunityTreasury.fromMap((data['treasury'] as Map<String, dynamic>?) ?? const {}),
     );
   }
 
@@ -75,6 +83,8 @@ class Community {
       'updatedAt': updatedAt == null ? null : Timestamp.fromDate(updatedAt!),
       'currency': currency.toMap(),
       'policy': policy.toMap(),
+      'visibility': visibility.toMap(),
+      'treasury': treasury.toMap(),
     };
   }
 
@@ -92,6 +102,8 @@ class Community {
     DateTime? updatedAt,
     CommunityCurrency? currency,
     CommunityPolicy? policy,
+    CommunityVisibility? visibility,
+    CommunityTreasury? treasury,
   }) {
     return Community(
       id: id,
@@ -108,6 +120,8 @@ class Community {
       updatedAt: updatedAt ?? this.updatedAt,
       currency: currency ?? this.currency,
       policy: policy ?? this.policy,
+      visibility: visibility ?? this.visibility,
+      treasury: treasury ?? this.treasury,
     );
   }
 
@@ -121,6 +135,65 @@ class Community {
       return DateTime.tryParse(value);
     }
     return null;
+  }
+}
+
+class CommunityVisibility {
+  const CommunityVisibility({
+    required this.balanceMode,
+    this.customMembers = const [],
+  });
+
+  final String balanceMode; // everyone | private | custom
+  final List<String> customMembers;
+
+  factory CommunityVisibility.fromMap(Map<String, dynamic> map) {
+    final mode = (map['balanceMode'] as String?) ?? 'private';
+    return CommunityVisibility(
+      balanceMode: mode,
+      customMembers: List<String>.from((map['customMembers'] as List?) ?? const []),
+    );
+  }
+
+  Map<String, Object?> toMap() => {
+        'balanceMode': balanceMode,
+        'customMembers': customMembers,
+      };
+
+  CommunityVisibility copyWith({String? balanceMode, List<String>? customMembers}) {
+    return CommunityVisibility(
+      balanceMode: balanceMode ?? this.balanceMode,
+      customMembers: customMembers ?? this.customMembers,
+    );
+  }
+}
+
+class CommunityTreasury {
+  const CommunityTreasury({
+    required this.balance,
+    required this.initialGrant,
+  });
+
+  final num balance;
+  final num initialGrant;
+
+  factory CommunityTreasury.fromMap(Map<String, dynamic> map) {
+    return CommunityTreasury(
+      balance: (map['balance'] as num?) ?? 0,
+      initialGrant: (map['initialGrant'] as num?) ?? 0,
+    );
+  }
+
+  Map<String, Object?> toMap() => {
+        'balance': balance,
+        'initialGrant': initialGrant,
+      };
+
+  CommunityTreasury copyWith({num? balance, num? initialGrant}) {
+    return CommunityTreasury(
+      balance: balance ?? this.balance,
+      initialGrant: initialGrant ?? this.initialGrant,
+    );
   }
 }
 

@@ -66,6 +66,16 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
   String? _loanTargetUid;
   bool _loaning = false;
   bool _createRepaymentRequest = true;
+  final TextEditingController _initialGrantCtrl = TextEditingController();
+  final TextEditingController _treasuryAdjustCtrl = TextEditingController();
+  String _balanceMode = 'private';
+  Set<String> _customVisibleMembers = {};
+  bool _visibilityInitialized = false;
+  bool _treasuryInitialized = false;
+  num _treasuryBalance = 0;
+  bool _savingVisibility = false;
+  bool _savingInitialGrant = false;
+  bool _adjustingTreasury = false;
 
   @override
   void initState() {
@@ -85,6 +95,8 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
     _requestMemoCtrl.dispose();
     _loanAmountCtrl.dispose();
     _loanMemoCtrl.dispose();
+    _initialGrantCtrl.dispose();
+    _treasuryAdjustCtrl.dispose();
     super.dispose();
   }
 
@@ -120,6 +132,15 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
     final sanitized = raw.trim().replaceAll(',', '');
     if (sanitized.isEmpty) return null;
     return double.tryParse(sanitized);
+  }
+
+  bool _setEquals(Set<String> a, Set<String> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (final value in a) {
+      if (!b.contains(value)) return false;
+    }
+    return true;
   }
 
   @override
@@ -166,10 +187,37 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
                   (data['currency'] as Map<String, dynamic>?) ?? const {});
               final policy = CommunityPolicy.fromMap(
                   (data['policy'] as Map<String, dynamic>?) ?? const {});
+              final visibility = CommunityVisibility.fromMap(
+                  (data['visibility'] as Map<String, dynamic>?) ?? const {});
+              final treasury = CommunityTreasury.fromMap(
+                  (data['treasury'] as Map<String, dynamic>?) ?? const {});
               final communityName = widget.communityName ??
                   (data['name'] as String?) ??
                   widget.communityId;
               final inviteCode = (data['inviteCode'] as String?) ?? '';
+
+              if (!_savingVisibility) {
+                final fetchedCustom = visibility.customMembers.toSet();
+                if (!_visibilityInitialized ||
+                    _balanceMode != visibility.balanceMode ||
+                    !_setEquals(_customVisibleMembers, fetchedCustom)) {
+                  _balanceMode = visibility.balanceMode;
+                  _customVisibleMembers = fetchedCustom;
+                  _visibilityInitialized = true;
+                }
+              }
+
+              if (!_savingInitialGrant && !_adjustingTreasury) {
+                _treasuryBalance = treasury.balance;
+                if (!_treasuryInitialized) {
+                  _initialGrantCtrl.text = treasury.initialGrant == 0
+                      ? ''
+                      : treasury.initialGrant.toString();
+                }
+                _treasuryInitialized = true;
+              } else {
+                _treasuryBalance = treasury.balance;
+              }
 
               return FutureBuilder<List<_MemberOption>>(
                 future: _membersFuture,
@@ -197,6 +245,8 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
                         _CentralBankSettingsCard(
                           currency: currency,
                           policy: policy,
+                          balanceMode: visibility.balanceMode,
+                          customMembers: visibility.customMembers,
                           onEdit: canManage
                               ? () => showCurrencyEditDialog(
                                     context,
@@ -239,7 +289,54 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
                             approverUid: widget.user.uid,
                             requestService: _requestService,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 16),
+                          CentralBankVisibilityCard(
+                            balanceMode: _balanceMode,
+                            members: members,
+                            customSelected:
+                                Set<String>.unmodifiable(_customVisibleMembers),
+                            onChangedMode: (mode) {
+                              setState(() {
+                                _balanceMode = mode;
+                                if (mode != 'custom') {
+                                  _customVisibleMembers.clear();
+                                }
+                              });
+                            },
+                            onToggleMember: (uid) {
+                              setState(() {
+                                if (_customVisibleMembers.contains(uid)) {
+                                  _customVisibleMembers.remove(uid);
+                                } else {
+                                  _customVisibleMembers.add(uid);
+                                }
+                              });
+                            },
+                            submitting: _savingVisibility || membersLoading,
+                            onSubmit: () {
+                              if (membersLoading || _savingVisibility) return;
+                              _saveVisibility();
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          CentralBankTreasuryCard(
+                            balance: _treasuryBalance,
+                            currencyCode: currency.code,
+                            precision: currency.precision,
+                            initialGrantController: _initialGrantCtrl,
+                            adjustController: _treasuryAdjustCtrl,
+                            savingInitialGrant: _savingInitialGrant,
+                            adjustingBalance: _adjustingTreasury,
+                            onSaveInitialGrant: () {
+                              if (_savingInitialGrant) return;
+                              _updateInitialGrant();
+                            },
+                            onAdjustBalance: () {
+                              if (_adjustingTreasury) return;
+                              _applyTreasuryAdjustment();
+                            },
+                          ),
+                          const SizedBox(height: 16),
                           _CentralBankActionCard(
                             title: '中央銀行から送金',
                             description: 'メンバーへ直接残高を送金します',
@@ -426,6 +523,83 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
       SnackBar(content: Text(message)),
     );
   }
+
+  Future<void> _saveVisibility() async {
+    setState(() => _savingVisibility = true);
+    try {
+      final visibility = CommunityVisibility(
+        balanceMode: _balanceMode,
+        customMembers: _balanceMode == 'custom'
+            ? _customVisibleMembers.toList()
+            : const [],
+      );
+      await _communityService.updateVisibilitySettings(
+        communityId: widget.communityId,
+        visibility: visibility,
+      );
+      _showSnack('残高公開設定を保存しました');
+    } catch (e) {
+      _showSnack('設定の保存に失敗しました: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingVisibility = false;
+          _visibilityInitialized = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _updateInitialGrant() async {
+    final value = double.tryParse(_initialGrantCtrl.text.trim());
+    if (value == null) {
+      _showSnack('初期配布金額を正しく入力してください');
+      return;
+    }
+    setState(() => _savingInitialGrant = true);
+    try {
+      await _communityService.updateTreasurySettings(
+        communityId: widget.communityId,
+        initialGrant: value,
+      );
+      _showSnack('初期配布金額を更新しました');
+    } catch (e) {
+      _showSnack('初期配布金額の更新に失敗しました: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _savingInitialGrant = false;
+          _treasuryInitialized = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _applyTreasuryAdjustment() async {
+    final delta = double.tryParse(_treasuryAdjustCtrl.text.trim());
+    if (delta == null || delta == 0) {
+      _showSnack('加減する金額を入力してください');
+      return;
+    }
+    setState(() => _adjustingTreasury = true);
+    try {
+      await _communityService.adjustTreasuryBalance(
+        communityId: widget.communityId,
+        delta: delta,
+      );
+      _showSnack('中央銀行の残高を更新しました');
+      _treasuryAdjustCtrl.clear();
+    } catch (e) {
+      _showSnack('残高の更新に失敗しました: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _adjustingTreasury = false;
+          _treasuryInitialized = false;
+        });
+      }
+    }
+  }
 }
 
 class _MemberOption {
@@ -441,12 +615,16 @@ class _CentralBankSettingsCard extends StatelessWidget {
     required this.policy,
     this.onEdit,
     required this.canManage,
+    this.balanceMode,
+    this.customMembers = const [],
   });
 
   final CommunityCurrency currency;
   final CommunityPolicy policy;
   final VoidCallback? onEdit;
   final bool canManage;
+  final String? balanceMode;
+  final List<String> customMembers;
 
   @override
   Widget build(BuildContext context) {
@@ -597,6 +775,207 @@ class _CentralBankActionCard extends StatelessWidget {
                     : Text(actionLabel ?? '送信'),
               ),
             )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CentralBankVisibilityCard extends StatelessWidget {
+  const CentralBankVisibilityCard({
+    super.key,
+    required this.balanceMode,
+    required this.members,
+    required this.customSelected,
+    required this.onChangedMode,
+    required this.onToggleMember,
+    required this.submitting,
+    required this.onSubmit,
+  });
+
+  final String balanceMode;
+  final List<_MemberOption> members;
+  final Set<String> customSelected;
+  final ValueChanged<String> onChangedMode;
+  final ValueChanged<String> onToggleMember;
+  final bool submitting;
+  final VoidCallback onSubmit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('残高公開設定',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            _RadioRow(
+              label: '全員に公開',
+              value: 'everyone',
+              groupValue: balanceMode,
+              onChanged: onChangedMode,
+            ),
+            _RadioRow(
+              label: '全員非公開',
+              value: 'private',
+              groupValue: balanceMode,
+              onChanged: onChangedMode,
+            ),
+            _RadioRow(
+              label: 'メンバーごとに指定',
+              value: 'custom',
+              groupValue: balanceMode,
+              onChanged: onChangedMode,
+            ),
+            if (balanceMode == 'custom') ...[
+              const Divider(height: 24),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: members
+                    .map(
+                      (member) => FilterChip(
+                        label: Text(member.name),
+                        selected: customSelected.contains(member.uid),
+                        onSelected: (_) => onToggleMember(member.uid),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                onPressed: submitting ? null : onSubmit,
+                child: submitting
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('設定を保存'),
+              ),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RadioRow extends StatelessWidget {
+  const _RadioRow({
+    required this.label,
+    required this.value,
+    required this.groupValue,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String value;
+  final String groupValue;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return RadioListTile<String>(
+      value: value,
+      groupValue: groupValue,
+      onChanged: (val) => onChanged(val ?? value),
+      title: Text(label),
+    );
+  }
+}
+
+class CentralBankTreasuryCard extends StatelessWidget {
+  const CentralBankTreasuryCard({
+    super.key,
+    required this.balance,
+    required this.currencyCode,
+    required this.precision,
+    required this.initialGrantController,
+    required this.adjustController,
+    required this.savingInitialGrant,
+    required this.adjustingBalance,
+    required this.onSaveInitialGrant,
+    required this.onAdjustBalance,
+  });
+
+  final num balance;
+  final String currencyCode;
+  final int precision;
+  final TextEditingController initialGrantController;
+  final TextEditingController adjustController;
+  final bool savingInitialGrant;
+  final bool adjustingBalance;
+  final VoidCallback onSaveInitialGrant;
+  final VoidCallback onAdjustBalance;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('中央銀行残高',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 8),
+            Text('現在の残高: $currencyCode ${balance.toStringAsFixed(precision)}'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: initialGrantController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: '初期配布金額 (新規メンバー)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                onPressed: savingInitialGrant ? null : onSaveInitialGrant,
+                child: savingInitialGrant
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('初期配布金額を更新'),
+              ),
+            ),
+            const Divider(height: 32),
+            TextField(
+              controller: adjustController,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: '残高を加減する (正で加算／負で減算)',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton(
+                onPressed: adjustingBalance ? null : onAdjustBalance,
+                child: adjustingBalance
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('残高を更新'),
+              ),
+            ),
           ],
         ),
       ),
