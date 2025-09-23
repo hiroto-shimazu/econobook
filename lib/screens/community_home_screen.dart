@@ -10,6 +10,27 @@ import 'community_links_screen.dart';
 import 'community_loan_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
 
+DateTime? _homeReadTimestamp(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is int) {
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+int _homeCompareJoinedDesc(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final aDate = _homeReadTimestamp(a['joinedAt']);
+  final bDate = _homeReadTimestamp(b['joinedAt']);
+  if (aDate == null && bDate == null) return 0;
+  if (aDate == null) return 1;
+  if (bDate == null) return -1;
+  return bDate.compareTo(aDate);
+}
+
 class CommunityHomeScreen extends StatefulWidget {
   const CommunityHomeScreen({
     super.key,
@@ -71,7 +92,6 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
       FirebaseFirestore.instance
           .collection('memberships')
           .where('cid', isEqualTo: widget.communityId)
-          .orderBy('joinedAt', descending: true)
           .limit(6)
           .snapshots();
 
@@ -191,18 +211,21 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
                       stream: _membersStream,
                       builder: (context, snapshot) {
                         final members = snapshot.data?.docs ?? [];
-                        if (members.isEmpty) {
+                        final sortedMembers = members.toList()
+                          ..sort((a, b) =>
+                              _homeCompareJoinedDesc(a.data(), b.data()));
+                        if (sortedMembers.isEmpty) {
                           return const Card(
                             child: Padding(
                               padding: EdgeInsets.all(16),
-                              child: Text('メンバー情報を取得できませんでした'),
+                              child: Text('メンバーがまだいません'),
                             ),
                           );
                         }
                         return Wrap(
                           spacing: 12,
                           runSpacing: 12,
-                          children: members.map((doc) {
+                          children: sortedMembers.map((doc) {
                             final data = doc.data();
                             final uid = (data['uid'] as String?) ?? 'unknown';
                             final roleLabel = data['role'] as String? ?? 'member';

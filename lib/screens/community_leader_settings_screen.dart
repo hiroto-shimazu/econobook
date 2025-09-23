@@ -3,6 +3,27 @@ import 'package:flutter/material.dart';
 
 import '../services/community_service.dart';
 
+DateTime? _leaderReadTimestamp(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is int) {
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+int _leaderCompareJoinedAsc(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final aDate = _leaderReadTimestamp(a['joinedAt']);
+  final bDate = _leaderReadTimestamp(b['joinedAt']);
+  if (aDate == null && bDate == null) return 0;
+  if (aDate == null) return 1;
+  if (bDate == null) return -1;
+  return aDate.compareTo(bDate);
+}
+
 class CommunityLeaderSettingsScreen extends StatefulWidget {
   const CommunityLeaderSettingsScreen({
     super.key,
@@ -37,7 +58,6 @@ class _CommunityLeaderSettingsScreenState
     final membersStream = FirebaseFirestore.instance
         .collection('memberships')
         .where('cid', isEqualTo: widget.communityId)
-        .orderBy('joinedAt', descending: false)
         .limit(50)
         .snapshots();
 
@@ -60,7 +80,9 @@ class _CommunityLeaderSettingsScreenState
             );
           }
           final docs = snapshot.data?.docs ?? [];
-          if (docs.isEmpty) {
+          final sortedDocs = docs.toList()
+            ..sort((a, b) => _leaderCompareJoinedAsc(a.data(), b.data()));
+          if (sortedDocs.isEmpty) {
             return const Center(child: Text('メンバーがいません'));
           }
           return ListView(
@@ -71,7 +93,7 @@ class _CommunityLeaderSettingsScreenState
                 style: TextStyle(color: Colors.black87),
               ),
               const SizedBox(height: 16),
-              ...docs.map((doc) {
+              ...sortedDocs.map((doc) {
                 final data = doc.data();
                 final uid = (data['uid'] as String?) ?? '';
                 final role = (data['role'] as String?) ?? 'member';

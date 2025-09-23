@@ -5,6 +5,27 @@ import 'package:flutter/material.dart';
 import '../constants/community.dart';
 import 'central_bank_screen.dart';
 
+DateTime? _chatReadTimestamp(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is int) {
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+int _chatCompareJoinedDesc(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final aDate = _chatReadTimestamp(a['joinedAt']);
+  final bDate = _chatReadTimestamp(b['joinedAt']);
+  if (aDate == null && bDate == null) return 0;
+  if (aDate == null) return 1;
+  if (bDate == null) return -1;
+  return bDate.compareTo(aDate);
+}
+
 class CommunityChatScreen extends StatelessWidget {
   const CommunityChatScreen({
     super.key,
@@ -39,7 +60,6 @@ class CommunityChatScreen extends StatelessWidget {
     final membersStream = FirebaseFirestore.instance
         .collection('memberships')
         .where('cid', isEqualTo: communityId)
-        .orderBy('joinedAt', descending: true)
         .snapshots();
 
     return Scaffold(
@@ -97,13 +117,15 @@ class CommunityChatScreen extends StatelessWidget {
                   );
                 }
                 final docs = snapshot.data?.docs ?? [];
-                if (docs.isEmpty) {
+                final sortedDocs = docs.toList()
+                  ..sort((a, b) => _chatCompareJoinedDesc(a.data(), b.data()));
+                if (sortedDocs.isEmpty) {
                   return const Center(child: Text('メンバーがまだいません'));
                 }
                 return ListView.builder(
-                  itemCount: docs.length,
+                  itemCount: sortedDocs.length,
                   itemBuilder: (context, index) {
-                    final data = docs[index].data();
+                    final data = sortedDocs[index].data();
                     final uid = (data['uid'] as String?) ?? 'unknown';
                     final role = (data['role'] as String?) ?? 'member';
                     final displayName = uid == user.uid ? 'あなた' : uid;

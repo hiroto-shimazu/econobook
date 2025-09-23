@@ -23,6 +23,28 @@ const LinearGradient kBrandGrad = LinearGradient(
   colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
 );
 
+DateTime? _readTimestamp(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is int) {
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+int _compareJoinedAtDesc(
+    Map<String, dynamic> a, Map<String, dynamic> b) {
+  final aDate = _readTimestamp(a['joinedAt']);
+  final bDate = _readTimestamp(b['joinedAt']);
+  if (aDate == null && bDate == null) return 0;
+  if (aDate == null) return 1;
+  if (bDate == null) return -1;
+  return bDate.compareTo(aDate);
+}
+
 class CommunitiesScreen extends StatefulWidget {
   const CommunitiesScreen({super.key, required this.user});
   final User user;
@@ -46,8 +68,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   Widget build(BuildContext context) {
     final membershipsQuery = FirebaseFirestore.instance
         .collection('memberships')
-        .where('uid', isEqualTo: widget.user.uid)
-        .orderBy('joinedAt', descending: true);
+        .where('uid', isEqualTo: widget.user.uid);
 
     // Discover（公開コミュ）: まずは単純に最新順。将来 where('discoverable', isEqualTo: true) を追加
     final discoverQuery =
@@ -93,8 +114,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                 );
               }
               final docs = snap.data?.docs ?? [];
+              final sortedDocs = docs.toList()
+                ..sort((a, b) => _compareJoinedAtDesc(a.data(), b.data()));
               final newSet = <String>{
-                for (final doc in docs)
+                for (final doc in sortedDocs)
                   if (doc.data()['cid'] is String) doc.data()['cid'] as String
               };
               if (!setEquals(_myCommunityIds, newSet)) {
@@ -104,12 +127,12 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                   }
                 });
               }
-              if (docs.isEmpty) {
+              if (sortedDocs.isEmpty) {
                 return _emptyMyCommunities(context);
               }
               return Column(
                 children: [
-                  for (final m in docs) ...[
+                  for (final m in sortedDocs) ...[
                     FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                       future: FirebaseFirestore.instance
                           .doc('communities/${m['cid']}')
@@ -598,7 +621,7 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                 membershipSnap.data?.data() ?? widget.membershipData;
             final balance = (membershipRaw['balance'] as num?) ?? 0;
             final role = (membershipRaw['role'] as String?) ?? 'member';
-            final hasBankPermission =
+            final membershipHasBankPermission =
                 role == 'owner' || (membershipRaw['canManageBank'] == true);
 
             return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -628,9 +651,11 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                 final inviteCode = (data['inviteCode'] as String?) ?? '';
                 final discoverable = data['discoverable'] == true;
                 final ownerUid = (data['ownerUid'] as String?) ?? '';
+                final canManageBank =
+                    membershipHasBankPermission || ownerUid == widget.user.uid;
 
                 Future<void> handleBankSettings() async {
-                  if (hasBankPermission) {
+                  if (canManageBank) {
                     await CentralBankScreen.open(
                       context,
                       communityId: widget.communityId,
@@ -786,7 +811,7 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                               );
                             },
                             onBankSettings: handleBankSettings,
-                            canManageBank: hasBankPermission,
+                            canManageBank: canManageBank,
                           ),
                           const SizedBox(height: 24),
                           const _SectionHeader(title: '通貨・中央銀行設定'),
@@ -796,9 +821,9 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                             requiresApproval: policy.requiresApproval,
                             allowMinting: currency.allowMinting,
                             onOpen: handleBankSettings,
-                            canManage: hasBankPermission,
+                            canManage: canManageBank,
                           ),
-                          if (!hasBankPermission) ...[
+                          if (!canManageBank) ...[
                             const SizedBox(height: 8),
                             const Text(
                               '中央銀行の設定はウォレットから管理できます。必要な場合は変更をリクエストしてください。',
@@ -1689,7 +1714,6 @@ class _CommunityMembersList extends StatelessWidget {
     final stream = FirebaseFirestore.instance
         .collection('memberships')
         .where('cid', isEqualTo: communityId)
-        .orderBy('joinedAt', descending: true)
         .limit(20)
         .snapshots();
 
@@ -1709,7 +1733,9 @@ class _CommunityMembersList extends StatelessWidget {
           );
         }
         final docs = snapshot.data?.docs ?? [];
-        if (docs.isEmpty) {
+        final sortedDocs = docs.toList()
+          ..sort((a, b) => _compareJoinedAtDesc(a.data(), b.data()));
+        if (sortedDocs.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 8),
             child: Text('メンバーがまだいません'),
@@ -1717,7 +1743,7 @@ class _CommunityMembersList extends StatelessWidget {
         }
         return Column(
           children: [
-            for (final doc in docs)
+            for (final doc in sortedDocs)
               _MemberTile(
                 communityId: communityId,
                 data: doc.data(),

@@ -19,6 +19,27 @@ const LinearGradient kBrandGrad = LinearGradient(
   colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
 );
 
+DateTime? _walletReadTimestamp(dynamic value) {
+  if (value is Timestamp) return value.toDate();
+  if (value is DateTime) return value;
+  if (value is int) {
+    return DateTime.fromMillisecondsSinceEpoch(value);
+  }
+  if (value is String && value.isNotEmpty) {
+    return DateTime.tryParse(value);
+  }
+  return null;
+}
+
+int _walletCompareJoinedDesc(Map<String, dynamic> a, Map<String, dynamic> b) {
+  final aDate = _walletReadTimestamp(a['joinedAt']);
+  final bDate = _walletReadTimestamp(b['joinedAt']);
+  if (aDate == null && bDate == null) return 0;
+  if (aDate == null) return 1;
+  if (bDate == null) return -1;
+  return bDate.compareTo(aDate);
+}
+
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key, required this.user});
   final User user;
@@ -193,8 +214,7 @@ class _WalletScreenState extends State<WalletScreen> {
   Widget build(BuildContext context) {
     final membershipsQuery = FirebaseFirestore.instance
         .collection('memberships')
-        .where('uid', isEqualTo: widget.user.uid)
-        .orderBy('joinedAt', descending: true);
+        .where('uid', isEqualTo: widget.user.uid);
 
     return DefaultTabController(
       length: 2,
@@ -241,8 +261,10 @@ class _WalletScreenState extends State<WalletScreen> {
               return Center(child: Text('読み込みエラー: ${snap.error}'));
             }
             final docs = snap.data?.docs ?? [];
+            final sortedDocs = docs.toList()
+              ..sort((a, b) => _walletCompareJoinedDesc(a.data(), b.data()));
             num total = 0;
-            for (final d in docs) {
+            for (final d in sortedDocs) {
               total += (d.data()['balance'] as num?) ?? 0;
             }
 
@@ -284,10 +306,10 @@ class _WalletScreenState extends State<WalletScreen> {
                           fontWeight: FontWeight.w700,
                           color: Colors.black87)),
                 ),
-                if (docs.isEmpty)
+                if (sortedDocs.isEmpty)
                   _buildEmptyCommunitiesCard(context)
                 else ...[
-                  for (final m in docs) _communityBalanceTile(m),
+                  for (final m in sortedDocs) _communityBalanceTile(m),
                   const SizedBox(height: 8),
                 ],
 
@@ -382,7 +404,8 @@ class _WalletScreenState extends State<WalletScreen> {
     final cid = data['cid'] as String? ?? 'unknown';
     final balance = (data['balance'] as num?) ?? 0;
     final role = (data['role'] as String?) ?? 'member';
-    final canManageBank = role == 'owner' || data['canManageBank'] == true;
+    final membershipHasPermission =
+        role == 'owner' || data['canManageBank'] == true;
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       future: FirebaseFirestore.instance.doc('communities/$cid').get(),
@@ -390,6 +413,8 @@ class _WalletScreenState extends State<WalletScreen> {
         final c = snap.data?.data() ?? <String, dynamic>{};
         final name = (c['name'] as String?) ?? cid;
         final cover = (c['coverUrl'] as String?);
+        final isOwner = (c['ownerUid'] as String?) == widget.user.uid;
+        final canManageBank = membershipHasPermission || isOwner;
         return Container(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(

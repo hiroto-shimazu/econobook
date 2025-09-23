@@ -347,6 +347,7 @@ class CommunityService {
   }) async {
     final membershipRef = refs.membershipDoc(communityId, userId);
     final communityRef = refs.communityDoc(communityId);
+    var shouldDeleteCommunity = false;
 
     await refs.raw.runTransaction((tx) async {
       final membershipSnap = await tx.get(membershipRef);
@@ -368,18 +369,29 @@ class CommunityService {
         throw StateError('リーダーは権限を移譲してから脱退できます');
       }
 
+      if (community.membersCount <= 1) {
+        tx.delete(membershipRef);
+        tx.delete(communityRef);
+        shouldDeleteCommunity = true;
+        return;
+      }
+
       final updates = <String, Object?>{
         'membersCount': FieldValue.increment(-1),
         'admins': FieldValue.arrayRemove([userId]),
         'updatedAt': FieldValue.serverTimestamp(),
       };
-      if (membership.role == 'owner' && community.membersCount <= 1) {
-        updates['ownerUid'] = '';
-      }
-
       tx.delete(membershipRef);
       tx.update(communityRef, updates);
     });
+
+    if (shouldDeleteCommunity) {
+      try {
+        await _purgeCommunityData(communityId);
+      } catch (_) {
+        // 付随データの削除に失敗しても、コミュニティ脱退自体は成功とする。
+      }
+    }
   }
 
   Future<void> submitBankSettingRequest({
@@ -637,5 +649,64 @@ class CommunityService {
     );
 
     await loanRef.update({'status': 'active', 'ledgerEntryId': entry.id});
+  }
+
+  Future<void> _purgeCommunityData(String communityId) async {
+    final firestore = refs.raw;
+
+    Future<void> deleteCollection(CollectionReference<Map<String, dynamic>> ref) async {
+      const batchSize = 400;
+      while (true) {
+        final snapshot = await ref.limit(batchSize).get();
+        if (snapshot.docs.isEmpty) break;
+        final batch = firestore.batch();
+        for (final doc in snapshot.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+      }
+    }
+
+    await deleteCollection(
+        firestore.collection('requests').doc(communityId).collection('items'));
+    await firestore.collection('requests').doc(communityId).delete();
+
+    await deleteCollection(
+        firestore.collection('tasks').doc(communityId).collection('items'));
+    await firestore.collection('tasks').doc(communityId).delete();
+
+    await deleteCollection(firestore
+        .collection('bank_setting_requests')
+        .doc(communityId)
+        .collection('items'));
+    await firestore
+        .collection('bank_setting_requests')
+        .doc(communityId)
+        .delete();
+
+    await deleteCollection(
+        firestore.collection('news').doc(communityId).collection('posts'));
+    await firestore.collection('news').doc(communityId).delete();
+
+    await deleteCollection(
+        firestore.collection('budgets').doc(communityId).collection('items'));
+    await firestore.collection('budgets').doc(communityId).delete();
+
+    await deleteCollection(
+        firestore.collection('loans').doc(communityId).collection('items'));
+    await firestore.collection('loans').doc(communityId).delete();
+
+    await deleteCollection(firestore
+        .collection('join_requests')
+        .doc(communityId)
+        .collection('items'));
+    await firestore.collection('join_requests').doc(communityId).delete();
+
+    final ledgerDoc = firestore.collection('ledger').doc(communityId);
+    await deleteCollection(ledgerDoc.collection('entries'));
+    await deleteCollection(ledgerDoc.collection('idempotency'));
+    await ledgerDoc.delete();
+
+    await firestore.collection('bank_accounts').doc(communityId).delete().catchError((_) {});
   }
 }

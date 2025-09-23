@@ -104,7 +104,6 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
     final membershipSnap = await FirebaseFirestore.instance
         .collection('memberships')
         .where('cid', isEqualTo: widget.communityId)
-        .orderBy('joinedAt', descending: true)
         .get();
 
     final futures = membershipSnap.docs.map((doc) async {
@@ -160,9 +159,10 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           final membershipData = membershipSnap.data;
-          final role = (membershipData?['role'] as String?) ?? 'member';
-          final canManage =
-              role == 'owner' || (membershipData?['canManageBank'] == true);
+          final membershipRole =
+              (membershipData?['role'] as String?) ?? 'member';
+          final membershipHasPermission =
+              membershipRole == 'owner' || (membershipData?['canManageBank'] == true);
 
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
@@ -195,6 +195,9 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
                   (data['name'] as String?) ??
                   widget.communityId;
               final inviteCode = (data['inviteCode'] as String?) ?? '';
+              final ownerUid = (data['ownerUid'] as String?) ?? '';
+              final canManage =
+                  membershipHasPermission || ownerUid == widget.user.uid;
 
               if (!_savingVisibility) {
                 final fetchedCustom = visibility.customMembers.toSet();
