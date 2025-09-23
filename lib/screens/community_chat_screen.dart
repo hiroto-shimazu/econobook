@@ -3,7 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/community.dart';
+import '../services/chat_service.dart';
 import 'central_bank_screen.dart';
+import 'member_chat_screen.dart';
 
 DateTime? _chatReadTimestamp(dynamic value) {
   if (value is Timestamp) return value.toDate();
@@ -24,6 +26,17 @@ int _chatCompareJoinedDesc(Map<String, dynamic> a, Map<String, dynamic> b) {
   if (aDate == null) return 1;
   if (bDate == null) return -1;
   return bDate.compareTo(aDate);
+}
+
+String? _formatChatTimestamp(DateTime? time) {
+  if (time == null) return null;
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final target = DateTime(time.year, time.month, time.day);
+  if (target == today) {
+    return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+  }
+  return '${time.month}/${time.day}';
 }
 
 class CommunityChatScreen extends StatelessWidget {
@@ -62,6 +75,13 @@ class CommunityChatScreen extends StatelessWidget {
         .where('cid', isEqualTo: communityId)
         .snapshots();
 
+    final threadsStream = FirebaseFirestore.instance
+        .collection('community_chats')
+        .doc(communityId)
+        .collection('threads')
+        .where('participants', arrayContains: user.uid)
+        .snapshots();
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -86,125 +106,271 @@ class CommunityChatScreen extends StatelessWidget {
           )
         ],
       ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              'メンバーとトーク',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              'メンバーを選択してチャットを開始します。チャット機能は近日アップデート予定です。',
-              style: TextStyle(color: Colors.black54),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: membersStream,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Text('メンバーを取得できませんでした: ${snapshot.error}'),
-                  );
-                }
-                final docs = snapshot.data?.docs ?? [];
-                final sortedDocs = docs.toList()
-                  ..sort((a, b) => _chatCompareJoinedDesc(a.data(), b.data()));
-                if (sortedDocs.isEmpty) {
-                  return const Center(child: Text('メンバーがまだいません'));
-                }
-                return ListView.builder(
-                  itemCount: sortedDocs.length,
-                  itemBuilder: (context, index) {
-                    final data = sortedDocs[index].data();
-                    final uid = (data['uid'] as String?) ?? 'unknown';
-                    final role = (data['role'] as String?) ?? 'member';
-                    final displayName = uid == user.uid ? 'あなた' : uid;
-                    final isCentralBank = uid == kCentralBankUid;
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.blue.shade100,
-                        child: Text(
-                          displayName.characters.first.toUpperCase(),
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      title: Text(displayName,
-                          style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text(_roleLabel(role, isCentralBank)),
-                      trailing: const Icon(Icons.chat_bubble_outline),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('$displayName とのチャットは準備中です'),
-                          ),
-                        );
-                      },
-                    );
-                  },
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: membersStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('メンバーを取得できませんでした: ${snapshot.error}'),
+            );
+          }
+          final docs = snapshot.data?.docs ?? [];
+          final members = docs
+              .map((doc) => doc.data())
+              .where((data) {
+                final uid = data['uid'];
+                if (uid is! String || uid.isEmpty) return false;
+                if (uid == user.uid) return false;
+                if (uid == kCentralBankUid) return false;
+                return true;
+              })
+              .toList();
+
+          if (members.isEmpty) {
+            return const Center(child: Text('他のメンバーがまだいません'));
+          }
+
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: threadsStream,
+            builder: (context, threadsSnap) {
+              final threadDocs = threadsSnap.data?.docs ??
+                  <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+              final previews = <String, _ThreadPreview>{};
+              for (final doc in threadDocs) {
+                final data = doc.data();
+                final participants = List<String>.from(
+                    (data['participants'] as List?) ?? const <String>[]);
+                final otherUid = participants.firstWhere(
+                  (uid) => uid != user.uid,
+                  orElse: () => '',
                 );
-              },
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Color(0x11000000))),
-              color: Colors.white,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    enabled: false,
-                    decoration: InputDecoration(
-                      hintText: 'メッセージ機能は準備中です',
-                      filled: true,
-                      fillColor: Colors.grey.shade200,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide.none,
-                      ),
-                      contentPadding:
-                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                if (otherUid.isEmpty) continue;
+                final updatedAt = _chatReadTimestamp(data['updatedAt']);
+                final unreadMap = Map<String, dynamic>.from(
+                    (data['unreadCounts'] as Map?) ?? const {});
+                final unreadRaw = unreadMap[user.uid];
+                final unreadCount = unreadRaw is num ? unreadRaw.toInt() : 0;
+                previews[otherUid] = _ThreadPreview(
+                  id: doc.id,
+                  lastMessage: (data['lastMessage'] as String?)?.trim(),
+                  lastSenderUid: (data['lastSenderUid'] as String?) ?? '',
+                  updatedAt: updatedAt,
+                  unreadCount: unreadCount,
+                );
+              }
+
+              members.sort((a, b) {
+                final uidA = a['uid'] as String?;
+                final uidB = b['uid'] as String?;
+                final threadA = uidA == null ? null : previews[uidA];
+                final threadB = uidB == null ? null : previews[uidB];
+                if (threadA != null && threadB != null) {
+                  final timeA = threadA.updatedAt;
+                  final timeB = threadB.updatedAt;
+                  if (timeA != null && timeB != null) {
+                    return timeB.compareTo(timeA);
+                  }
+                  if (timeA != null) return -1;
+                  if (timeB != null) return 1;
+                }
+                if (threadA != null) return -1;
+                if (threadB != null) return 1;
+                return _chatCompareJoinedDesc(a, b);
+              });
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Text(
+                      'メンバーとトーク',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                     ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                IconButton(
-                  tooltip: 'メッセージを送信',
-                  icon: const Icon(Icons.send, color: Colors.grey),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('チャット機能は開発中です')),
-                    );
-                  },
-                ),
-              ],
-            ),
-          )
-        ],
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Text(
+                      'メンバー一覧から選択して個別チャットを開始できます。',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      itemCount: members.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final data = members[index];
+                        final uid = data['uid'] as String? ?? '';
+                        final role = (data['role'] as String?) ?? 'member';
+                        final thread = previews[uid];
+                        final threadId = ChatService.buildThreadId(user.uid, uid);
+                        return _MemberChatTile(
+                          communityId: communityId,
+                          communityName: communityName,
+                          currentUser: user,
+                          memberUid: uid,
+                          memberRole: role,
+                          threadId: thread?.id ?? threadId,
+                          threadPreview: thread,
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
       ),
     );
   }
+}
 
-  static String _roleLabel(String role, bool isCentralBank) {
-    if (isCentralBank) return '中央銀行';
-    return switch (role) {
-      'owner' => 'オーナー',
-      'admin' => '管理者',
-      'mediator' => '仲介',
-      'pending' => '承認待ち',
-      _ => 'メンバー',
-    };
+class _ThreadPreview {
+  const _ThreadPreview({
+    required this.id,
+    this.lastMessage,
+    required this.lastSenderUid,
+    this.updatedAt,
+    required this.unreadCount,
+  });
+
+  final String id;
+  final String? lastMessage;
+  final String lastSenderUid;
+  final DateTime? updatedAt;
+  final int unreadCount;
+}
+
+class _MemberChatTile extends StatelessWidget {
+  const _MemberChatTile({
+    required this.communityId,
+    required this.communityName,
+    required this.currentUser,
+    required this.memberUid,
+    required this.memberRole,
+    required this.threadId,
+    this.threadPreview,
+  });
+
+  final String communityId;
+  final String communityName;
+  final User currentUser;
+  final String memberUid;
+  final String memberRole;
+  final String threadId;
+  final _ThreadPreview? threadPreview;
+
+  @override
+  Widget build(BuildContext context) {
+    final userDocStream = FirebaseFirestore.instance
+        .doc('users/$memberUid')
+        .snapshots();
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: userDocStream,
+      builder: (context, snapshot) {
+        final data = snapshot.data?.data();
+        final rawName = (data?['displayName'] as String?)?.trim();
+        final displayName =
+            rawName != null && rawName.isNotEmpty ? rawName : memberUid;
+        final photoUrl = (data?['photoUrl'] as String?)?.trim();
+        final lastMessage = threadPreview?.lastMessage;
+        final lastSender = threadPreview?.lastSenderUid;
+        final previewText = (lastMessage == null || lastMessage.isEmpty)
+            ? 'メッセージはまだありません'
+            : (lastSender == currentUser.uid
+                ? 'あなた: $lastMessage'
+                : lastMessage);
+        final timeLabel =
+            _formatChatTimestamp(threadPreview?.updatedAt) ?? '';
+        final unreadCount = threadPreview?.unreadCount ?? 0;
+
+        return ListTile(
+          leading: _MemberAvatar(name: displayName, photoUrl: photoUrl),
+          title: Text(
+            displayName,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: Text(
+            previewText,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (timeLabel.isNotEmpty)
+                Text(
+                  timeLabel,
+                  style: const TextStyle(fontSize: 11, color: Colors.black45),
+                ),
+              if (unreadCount > 0) ...[
+                const SizedBox(height: 4),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.redAccent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    unreadCount > 99 ? '99+' : unreadCount.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          onTap: () {
+            MemberChatScreen.open(
+              context,
+              communityId: communityId,
+              communityName: communityName,
+              currentUser: currentUser,
+              partnerUid: memberUid,
+              partnerDisplayName: displayName,
+              partnerPhotoUrl: photoUrl,
+              threadId: threadId,
+              memberRole: memberRole,
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _MemberAvatar extends StatelessWidget {
+  const _MemberAvatar({required this.name, this.photoUrl});
+
+  final String name;
+  final String? photoUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.isNotEmpty ? name.characters.first.toUpperCase() : '?';
+    return CircleAvatar(
+      backgroundColor: Colors.blue.shade100,
+      backgroundImage:
+          photoUrl == null || photoUrl!.isEmpty ? null : NetworkImage(photoUrl!),
+      child: photoUrl == null || photoUrl!.isEmpty
+          ? Text(
+              initial,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            )
+          : null,
+    );
   }
 }

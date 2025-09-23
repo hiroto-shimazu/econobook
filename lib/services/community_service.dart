@@ -406,6 +406,11 @@ class CommunityService {
     }
 
     final requests = refs.bankSettingRequests(communityId);
+    final parentDoc = refs.raw.collection('bank_setting_requests').doc(communityId);
+    await parentDoc.set({
+      'cid': communityId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
     await requests.add({
       'cid': communityId,
       'requesterUid': requesterUid,

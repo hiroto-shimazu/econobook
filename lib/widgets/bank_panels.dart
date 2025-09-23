@@ -110,55 +110,69 @@ class _BankSettingRequestTileState extends State<_BankSettingRequestTile> {
         ? null
         : '${createdAt.year}/${createdAt.month.toString().padLeft(2, '0')}/${createdAt.day.toString().padLeft(2, '0')}';
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(requesterUid,
-                style: const TextStyle(fontWeight: FontWeight.w700)),
-            if (createdLabel != null)
-              Text('申請日: $createdLabel',
-                  style: const TextStyle(fontSize: 12, color: Colors.black54)),
-            if (message.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(message),
-            ],
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance.doc('users/$requesterUid').get(),
+      builder: (context, snapshot) {
+        final userData = snapshot.data?.data();
+        final rawName = (userData?['displayName'] as String?)?.trim();
+        final displayName =
+            rawName != null && rawName.isNotEmpty ? rawName : requesterUid;
+
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                OutlinedButton.icon(
-                  onPressed: _resolving
-                      ? null
-                      : () async {
-                          await widget.onOpenSettings();
-                        },
-                  icon: const Icon(Icons.settings),
-                  label: const Text('設定を開く'),
+                Text(displayName,
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                if (createdLabel != null)
+                  Text('申請日: $createdLabel',
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.black54)),
+                if (message.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(message),
+                ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _resolving
+                          ? null
+                          : () async {
+                              await widget.onOpenSettings();
+                            },
+                      icon: const Icon(Icons.settings),
+                      label: const Text('設定を開く'),
+                    ),
+                    FilledButton(
+                      onPressed:
+                          _resolving ? null : () => _resolve(context, true),
+                      child: _resolving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('承認済みにする'),
+                    ),
+                    TextButton(
+                      onPressed:
+                          _resolving ? null : () => _resolve(context, false),
+                      child: const Text('却下'),
+                    )
+                  ],
                 ),
-                FilledButton(
-                  onPressed: _resolving ? null : () => _resolve(context, true),
-                  child: _resolving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('承認済みにする'),
-                ),
-                TextButton(
-                  onPressed: _resolving ? null : () => _resolve(context, false),
-                  child: const Text('却下'),
-                )
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -305,48 +319,60 @@ class _CentralBankRequestTileState extends State<_CentralBankRequestTile> {
         ? null
         : '${createdAt.year}/${createdAt.month.toString().padLeft(2, '0')}/${createdAt.day.toString().padLeft(2, '0')}';
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('請求者: $requesterUid',
-                style: const TextStyle(fontWeight: FontWeight.w700)),
-            Text('金額: ${amount.toStringAsFixed(2)}',
-                style: const TextStyle(color: Colors.black87)),
-            if (createdLabel != null)
-              Text('作成日: $createdLabel',
-                  style: const TextStyle(fontSize: 12, color: Colors.black54)),
-            if (memo.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text('メモ: $memo'),
-            ],
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance.doc('users/$requesterUid').get(),
+      builder: (context, snapshot) {
+        final userData = snapshot.data?.data();
+        final rawName = (userData?['displayName'] as String?)?.trim();
+        final displayName =
+            rawName != null && rawName.isNotEmpty ? rawName : requesterUid;
+
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                FilledButton(
-                  onPressed: _processing ? null : () => _approve(context),
-                  child: _processing
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('承認して送金'),
-                ),
-                TextButton(
-                  onPressed: _processing ? null : () => _reject(context),
-                  child: const Text('却下'),
+                Text('請求者: $displayName',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
+                Text('金額: ${amount.toStringAsFixed(2)}',
+                    style: const TextStyle(color: Colors.black87)),
+                if (createdLabel != null)
+                  Text('作成日: $createdLabel',
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.black54)),
+                if (memo.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text('メモ: $memo'),
+                ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton(
+                      onPressed: _processing ? null : () => _approve(context),
+                      child: _processing
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('承認して送金'),
+                    ),
+                    TextButton(
+                      onPressed: _processing ? null : () => _reject(context),
+                      child: const Text('却下'),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
