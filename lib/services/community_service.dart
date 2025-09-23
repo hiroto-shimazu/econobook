@@ -406,32 +406,12 @@ class CommunityService {
     }
 
     final requests = refs.bankSettingRequests(communityId);
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
-<<<<<<< ours
     final parentDoc = refs.raw.collection('bank_setting_requests').doc(communityId);
     await parentDoc.set({
       'cid': communityId,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     await requests.add({
-=======
-    final payload = <String, dynamic>{
->>>>>>> theirs
-=======
-    await requests.add({
->>>>>>> theirs
-=======
-    await requests.add({
->>>>>>> theirs
-=======
-    await requests.add({
->>>>>>> theirs
-=======
-    await requests.add({
->>>>>>> theirs
       'cid': communityId,
       'requesterUid': requesterUid,
       'message': message,
