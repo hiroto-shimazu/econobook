@@ -63,8 +63,8 @@ class Community {
       policy: CommunityPolicy.fromMap(policyMap),
       visibility: CommunityVisibility.fromMap(
           (data['visibility'] as Map<String, dynamic>?) ?? const {}),
-      treasury:
-          CommunityTreasury.fromMap((data['treasury'] as Map<String, dynamic>?) ?? const {}),
+      treasury: CommunityTreasury.fromMap(
+          (data['treasury'] as Map<String, dynamic>?) ?? const {}),
     );
   }
 
@@ -151,7 +151,8 @@ class CommunityVisibility {
     final mode = (map['balanceMode'] as String?) ?? 'private';
     return CommunityVisibility(
       balanceMode: mode,
-      customMembers: List<String>.from((map['customMembers'] as List?) ?? const []),
+      customMembers:
+          List<String>.from((map['customMembers'] as List?) ?? const []),
     );
   }
 
@@ -160,7 +161,8 @@ class CommunityVisibility {
         'customMembers': customMembers,
       };
 
-  CommunityVisibility copyWith({String? balanceMode, List<String>? customMembers}) {
+  CommunityVisibility copyWith(
+      {String? balanceMode, List<String>? customMembers}) {
     return CommunityVisibility(
       balanceMode: balanceMode ?? this.balanceMode,
       customMembers: customMembers ?? this.customMembers,

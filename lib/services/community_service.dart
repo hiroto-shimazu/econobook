@@ -292,6 +292,96 @@ class CommunityService {
     });
   }
 
+  Future<void> transferLeadership({
+    required String communityId,
+    required String currentLeaderUid,
+    required String newLeaderUid,
+  }) async {
+    if (currentLeaderUid == newLeaderUid) {
+      throw StateError('すでにリーダーに設定されています');
+    }
+
+    await refs.raw.runTransaction((tx) async {
+      final communityRef = refs.communityDoc(communityId);
+      final communitySnap = await tx.get(communityRef);
+      final community = communitySnap.data();
+      if (community == null) {
+        throw StateError('コミュニティが見つかりません');
+      }
+      if (community.ownerUid != currentLeaderUid) {
+        throw StateError('リーダーのみが権限を変更できます');
+      }
+
+      final currentLeaderRef = refs.membershipDoc(communityId, currentLeaderUid);
+      final currentLeaderSnap = await tx.get(currentLeaderRef);
+      final currentMembership = currentLeaderSnap.data();
+      if (currentMembership == null || currentMembership.role != 'owner') {
+        throw StateError('現在のメンバー情報を確認できませんでした');
+      }
+
+      final newLeaderRef = refs.membershipDoc(communityId, newLeaderUid);
+      final newLeaderSnap = await tx.get(newLeaderRef);
+      final newMembership = newLeaderSnap.data();
+      if (newMembership == null || newMembership.pending) {
+        throw StateError('リーダーに設定できるメンバーが見つかりません');
+      }
+
+      final adminSet = {...community.adminUids, currentLeaderUid, newLeaderUid};
+
+      tx.update(communityRef, {
+        'ownerUid': newLeaderUid,
+        'admins': adminSet.toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      tx.update(currentLeaderRef, {'role': 'admin'});
+      tx.update(newLeaderRef, {
+        'role': 'owner',
+        'canManageBank': true,
+      });
+    });
+  }
+
+  Future<void> leaveCommunity({
+    required String communityId,
+    required String userId,
+  }) async {
+    final membershipRef = refs.membershipDoc(communityId, userId);
+    final communityRef = refs.communityDoc(communityId);
+
+    await refs.raw.runTransaction((tx) async {
+      final membershipSnap = await tx.get(membershipRef);
+      final membership = membershipSnap.data();
+      if (membership == null) {
+        throw StateError('コミュニティメンバーではありません');
+      }
+
+      final communitySnap = await tx.get(communityRef);
+      final community = communitySnap.data();
+      if (community == null) {
+        throw StateError('コミュニティが見つかりません');
+      }
+      if (community.membersCount <= 0) {
+        throw StateError('コミュニティにメンバーが存在しません');
+      }
+
+      if (membership.role == 'owner' && community.membersCount > 1) {
+        throw StateError('リーダーは権限を移譲してから脱退できます');
+      }
+
+      final updates = <String, Object?>{
+        'membersCount': FieldValue.increment(-1),
+        'admins': FieldValue.arrayRemove([userId]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+      if (membership.role == 'owner' && community.membersCount <= 1) {
+        updates['ownerUid'] = '';
+      }
+
+      tx.delete(membershipRef);
+      tx.update(communityRef, updates);
+    });
+  }
+
   Future<void> submitBankSettingRequest({
     required String communityId,
     required String requesterUid,

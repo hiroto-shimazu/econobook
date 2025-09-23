@@ -7,9 +7,11 @@ import 'package:flutter/services.dart';
 import '../constants/community.dart';
 import '../models/community.dart';
 import '../services/community_service.dart';
+import '../services/firestore_refs.dart';
 import 'central_bank_screen.dart';
 import 'community_home_screen.dart';
 import 'community_create_screen.dart';
+import 'community_leader_settings_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
 
 // ---- Brand tokens (アプリ全体と統一) ----
@@ -535,7 +537,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       Map<String, dynamic> membershipData,
       User user,
       Map<String, dynamic>? communityPreview) async {
-    await showModalBottomSheet(
+    final result = await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
@@ -547,10 +549,16 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         );
       },
     );
+    if (!context.mounted) return;
+    if (result == 'left') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('コミュニティを脱退しました')),
+      );
+    }
   }
 }
 
-class _CommunityDetailSheet extends StatelessWidget {
+class _CommunityDetailSheet extends StatefulWidget {
   const _CommunityDetailSheet({
     required this.communityId,
     required this.membershipData,
@@ -564,9 +572,19 @@ class _CommunityDetailSheet extends StatelessWidget {
   final Map<String, dynamic>? communityPreview;
 
   @override
+  State<_CommunityDetailSheet> createState() => _CommunityDetailSheetState();
+}
+
+class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
+  final CommunityService _communityService = CommunityService();
+  bool _leaving = false;
+
+  @override
   Widget build(BuildContext context) {
-    final balance = (membershipData['balance'] as num?) ?? 0;
-    final role = (membershipData['role'] as String?) ?? 'member';
+    final membershipStream = FirebaseFirestore.instance
+        .doc(
+            'memberships/${FirestoreRefs.membershipId(widget.communityId, widget.user.uid)}')
+        .snapshots();
 
     return DraggableScrollableSheet(
       expand: false,
@@ -574,255 +592,401 @@ class _CommunityDetailSheet extends StatelessWidget {
       minChildSize: 0.6,
       builder: (ctx, controller) {
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .doc('communities/$communityId')
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text('コミュニティ情報の取得に失敗しました: ${snapshot.error}'),
-                ),
-              );
-            }
-            final rawData = snapshot.data?.data();
-            final data = rawData ?? communityPreview ?? {};
-            final name = (data['name'] as String?) ?? communityId;
-            final currency = CommunityCurrency.fromMap(
-                (data['currency'] as Map<String, dynamic>?) ?? const {});
-            final policy = CommunityPolicy.fromMap(
-                (data['policy'] as Map<String, dynamic>?) ?? const {});
-            final communityService = CommunityService();
+          stream: membershipStream,
+          builder: (context, membershipSnap) {
+            final membershipRaw =
+                membershipSnap.data?.data() ?? widget.membershipData;
+            final balance = (membershipRaw['balance'] as num?) ?? 0;
+            final role = (membershipRaw['role'] as String?) ?? 'member';
             final hasBankPermission =
-                role == 'owner' || (membershipData['canManageBank'] == true);
-            Future<void> handleBankSettings() async {
-              if (hasBankPermission) {
-                await CentralBankScreen.open(
-                  context,
-                  communityId: communityId,
-                  communityName: name,
-                  user: user,
-                );
-                return;
-              }
-              final messageCtrl = TextEditingController();
-              final result = await showDialog<String>(
-                context: context,
-                builder: (dialogCtx) {
-                  return AlertDialog(
-                    title: const Text('設定変更をリクエスト'),
-                    content: TextField(
-                      controller: messageCtrl,
-                      maxLines: 3,
-                      decoration: const InputDecoration(
-                        hintText: '変更してほしい内容があれば記入してください',
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(dialogCtx).pop(),
-                        child: const Text('キャンセル'),
-                      ),
-                      FilledButton(
-                        onPressed: () => Navigator.of(dialogCtx)
-                            .pop(messageCtrl.text.trim()),
-                        child: const Text('送信'),
-                      ),
-                    ],
-                  );
-                },
-              );
-              final message = result?.trim();
-              messageCtrl.dispose();
-              if (message == null) return;
-              try {
-                await communityService.submitBankSettingRequest(
-                  communityId: communityId,
-                  requesterUid: user.uid,
-                  message: message.isEmpty ? null : message,
-                );
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('設定変更リクエストを送信しました')),
-                );
-              } catch (e) {
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('リクエスト送信に失敗しました: $e')),
-                );
-              }
-            }
+                role == 'owner' || (membershipRaw['canManageBank'] == true);
 
-            final description = (data['description'] as String?) ?? '';
-            final symbol = (data['symbol'] as String?) ?? currency.code;
-            final membersCount = (data['membersCount'] as num?)?.toInt();
-            final inviteCode = (data['inviteCode'] as String?) ?? '';
-            final discoverable = data['discoverable'] == true;
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                rawData == null) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            return Material(
-              color: Colors.white,
-              child: SafeArea(
-                top: false,
-                child: SingleChildScrollView(
-                  controller: controller,
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 44,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(999),
+            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .doc('communities/${widget.communityId}')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                          'コミュニティ情報の取得に失敗しました: ${snapshot.error}'),
+                    ),
+                  );
+                }
+                final rawData = snapshot.data?.data();
+                final data = rawData ?? widget.communityPreview ?? {};
+                final name = (data['name'] as String?) ?? widget.communityId;
+                final currency = CommunityCurrency.fromMap(
+                    (data['currency'] as Map<String, dynamic>?) ?? const {});
+                final policy = CommunityPolicy.fromMap(
+                    (data['policy'] as Map<String, dynamic>?) ?? const {});
+                final description = (data['description'] as String?) ?? '';
+                final symbol = (data['symbol'] as String?) ?? currency.code;
+                final membersCount = (data['membersCount'] as num?)?.toInt();
+                final inviteCode = (data['inviteCode'] as String?) ?? '';
+                final discoverable = data['discoverable'] == true;
+                final ownerUid = (data['ownerUid'] as String?) ?? '';
+
+                Future<void> handleBankSettings() async {
+                  if (hasBankPermission) {
+                    await CentralBankScreen.open(
+                      context,
+                      communityId: widget.communityId,
+                      communityName: name,
+                      user: widget.user,
+                    );
+                    return;
+                  }
+                  final messageCtrl = TextEditingController();
+                  final result = await showDialog<String>(
+                    context: context,
+                    builder: (dialogCtx) {
+                      return AlertDialog(
+                        title: const Text('設定変更をリクエスト'),
+                        content: TextField(
+                          controller: messageCtrl,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            hintText: '変更してほしい内容があれば記入してください',
                           ),
                         ),
-                      ),
-                      Text(name,
-                          style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.black)),
-                      const SizedBox(height: 4),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(),
+                            child: const Text('キャンセル'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(dialogCtx)
+                                .pop(messageCtrl.text.trim()),
+                            child: const Text('送信'),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                  final message = result?.trim();
+                  messageCtrl.dispose();
+                  if (message == null) return;
+                  try {
+                    await _communityService.submitBankSettingRequest(
+                      communityId: widget.communityId,
+                      requesterUid: widget.user.uid,
+                      message: message.isEmpty ? null : message,
+                    );
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('設定変更リクエストを送信しました')),
+                    );
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('リクエスト送信に失敗しました: $e')),
+                    );
+                  }
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    rawData == null) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
+                return Material(
+                  color: Colors.white,
+                  child: SafeArea(
+                    top: false,
+                    child: SingleChildScrollView(
+                      controller: controller,
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _RoleChip(role: role),
-                          if (membersCount != null)
-                            Chip(
-                              label: Text('メンバー $membersCount人'),
-                              backgroundColor: kLightGray,
+                          Center(
+                            child: Container(
+                              width: 44,
+                              height: 4,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade300,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
                             ),
-                          if (discoverable)
-                            const Chip(
-                              label: Text('一般公開'),
-                              backgroundColor: kLightGray,
+                          ),
+                          Text(name,
+                              style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.black)),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: [
+                              _RoleChip(role: role),
+                              if (membersCount != null)
+                                Chip(
+                                  label: Text('メンバー $membersCount人'),
+                                  backgroundColor: kLightGray,
+                                ),
+                              if (discoverable)
+                                const Chip(
+                                  label: Text('一般公開'),
+                                  backgroundColor: kLightGray,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _BalanceSummaryCard(
+                            balance: balance,
+                            currency: currency,
+                            inviteCode:
+                                inviteCode.isEmpty ? null : inviteCode,
+                          ),
+                          if (description.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Text(description,
+                                style:
+                                    const TextStyle(color: Colors.black87)),
+                          ],
+                          const SizedBox(height: 24),
+                          const _SectionHeader(title: 'ショートカット'),
+                          const SizedBox(height: 8),
+                          _QuickActions(
+                            onSend: () {
+                              Navigator.of(context).pop();
+                              TransactionFlowScreen.open(
+                                context,
+                                user: widget.user,
+                                communityId: widget.communityId,
+                                initialKind: TransactionKind.transfer,
+                              );
+                            },
+                            onRequest: () {
+                              Navigator.of(context).pop();
+                              TransactionFlowScreen.open(
+                                context,
+                                user: widget.user,
+                                communityId: widget.communityId,
+                                initialKind: TransactionKind.request,
+                              );
+                            },
+                            onSplit: () {
+                              Navigator.of(context).pop();
+                              TransactionFlowScreen.open(
+                                context,
+                                user: widget.user,
+                                communityId: widget.communityId,
+                                initialKind: TransactionKind.split,
+                              );
+                            },
+                            onTask: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('タスク募集は準備中です')),
+                              );
+                            },
+                            onBankSettings: handleBankSettings,
+                            canManageBank: hasBankPermission,
+                          ),
+                          const SizedBox(height: 24),
+                          const _SectionHeader(title: '通貨・中央銀行設定'),
+                          const SizedBox(height: 8),
+                          _CentralBankLinkCard(
+                            currency: currency,
+                            requiresApproval: policy.requiresApproval,
+                            allowMinting: currency.allowMinting,
+                            onOpen: handleBankSettings,
+                            canManage: hasBankPermission,
+                          ),
+                          if (!hasBankPermission) ...[
+                            const SizedBox(height: 8),
+                            const Text(
+                              '中央銀行の設定はウォレットから管理できます。必要な場合は変更をリクエストしてください。',
+                              style:
+                                  TextStyle(fontSize: 12, color: Colors.black54),
                             ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                onPressed: handleBankSettings,
+                                icon: const Icon(Icons.outgoing_mail, size: 18),
+                                label: const Text('変更をリクエスト'),
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 24),
+                          if (role == 'owner' || role == 'admin') ...[
+                            const _SectionHeader(title: '参加申請'),
+                            const SizedBox(height: 8),
+                            _PendingJoinRequestsList(
+                              communityId: widget.communityId,
+                              service: _communityService,
+                              approverUid: widget.user.uid,
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+                          const _SectionHeader(title: '最近のタイムライン'),
+                          const SizedBox(height: 8),
+                          _CommunityActivityList(
+                            communityId: widget.communityId,
+                            symbol: symbol,
+                            precision: currency.precision,
+                            currentUid: widget.user.uid,
+                          ),
+                          const SizedBox(height: 24),
+                          const _SectionHeader(title: 'タスク'),
+                          const SizedBox(height: 8),
+                          _CommunityTasksList(
+                            communityId: widget.communityId,
+                          ),
+                          const SizedBox(height: 24),
+                          const _SectionHeader(title: 'メンバー'),
+                          const SizedBox(height: 8),
+                          _CommunityMembersList(
+                            communityId: widget.communityId,
+                            service: _communityService,
+                            currentUserUid: widget.user.uid,
+                            currentUserRole: role,
+                          ),
+                          if (role == 'owner') ...[
+                            const SizedBox(height: 24),
+                            const _SectionHeader(title: 'リーダー設定'),
+                            const SizedBox(height: 8),
+                            OutlinedButton.icon(
+                              onPressed: () => _openLeaderSettings(ownerUid),
+                              icon: const Icon(Icons.manage_accounts),
+                              label: const Text('リーダーを変更'),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'リーダーは常に1人必要です。脱退する場合は別のメンバーにリーダー権限を渡してください。',
+                              style: TextStyle(
+                                  fontSize: 12, color: Colors.black54),
+                            ),
+                          ],
+                          const SizedBox(height: 24),
+                          _LeaveCommunitySection(
+                            isLeader: role == 'owner',
+                            membersCount: membersCount ?? 0,
+                            onLeave: () => _confirmLeave(
+                              isLeader: role == 'owner',
+                              membersCount: membersCount ?? 0,
+                            ),
+                            leaving: _leaving,
+                          ),
+                          const SizedBox(height: 32),
                         ],
                       ),
-                      const SizedBox(height: 16),
-                      _BalanceSummaryCard(
-                        balance: balance,
-                        currency: currency,
-                        inviteCode: inviteCode.isEmpty ? null : inviteCode,
-                      ),
-                      if (description.isNotEmpty) ...[
-                        const SizedBox(height: 16),
-                        Text(description,
-                            style: const TextStyle(color: Colors.black87)),
-                      ],
-                      const SizedBox(height: 24),
-                      const _SectionHeader(title: 'ショートカット'),
-                      const SizedBox(height: 8),
-                      _QuickActions(
-                        onSend: () {
-                          Navigator.of(context).pop();
-                          TransactionFlowScreen.open(
-                            context,
-                            user: user,
-                            communityId: communityId,
-                            initialKind: TransactionKind.transfer,
-                          );
-                        },
-                        onRequest: () {
-                          Navigator.of(context).pop();
-                          TransactionFlowScreen.open(
-                            context,
-                            user: user,
-                            communityId: communityId,
-                            initialKind: TransactionKind.request,
-                          );
-                        },
-                        onSplit: () {
-                          Navigator.of(context).pop();
-                          TransactionFlowScreen.open(
-                            context,
-                            user: user,
-                            communityId: communityId,
-                            initialKind: TransactionKind.split,
-                          );
-                        },
-                        onTask: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('タスク募集は準備中です')),
-                          );
-                        },
-                        onBankSettings: handleBankSettings,
-                        canManageBank: hasBankPermission,
-                      ),
-                      const SizedBox(height: 24),
-                      const _SectionHeader(title: '通貨・中央銀行設定'),
-                      const SizedBox(height: 8),
-                      _CentralBankLinkCard(
-                        currency: currency,
-                        requiresApproval: policy.requiresApproval,
-                        allowMinting: currency.allowMinting,
-                        onOpen: handleBankSettings,
-                        canManage: hasBankPermission,
-                      ),
-                      if (!hasBankPermission) ...[
-                        const SizedBox(height: 8),
-                        const Text(
-                          '中央銀行の設定はウォレットから管理できます。必要な場合は変更をリクエストしてください。',
-                          style: TextStyle(fontSize: 12, color: Colors.black54),
-                        ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            onPressed: handleBankSettings,
-                            icon: const Icon(Icons.outgoing_mail, size: 18),
-                            label: const Text('変更をリクエスト'),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      if (role == 'owner' || role == 'admin') ...[
-                        const _SectionHeader(title: '参加申請'),
-                        const SizedBox(height: 8),
-                        _PendingJoinRequestsList(
-                          communityId: communityId,
-                          service: communityService,
-                          approverUid: user.uid,
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                      const _SectionHeader(title: '最近のタイムライン'),
-                      const SizedBox(height: 8),
-                      _CommunityActivityList(
-                        communityId: communityId,
-                        symbol: symbol,
-                        precision: currency.precision,
-                        currentUid: user.uid,
-                      ),
-                      const SizedBox(height: 24),
-                      const _SectionHeader(title: 'タスク'),
-                      const SizedBox(height: 8),
-                      _CommunityTasksList(communityId: communityId),
-                      const SizedBox(height: 24),
-                      const _SectionHeader(title: 'メンバー'),
-                      const SizedBox(height: 8),
-                      _CommunityMembersList(
-                        communityId: communityId,
-                        service: communityService,
-                        currentUserUid: user.uid,
-                        currentUserRole: role,
-                      ),
-                      const SizedBox(height: 32),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             );
           },
         );
       },
+    );
+  }
+
+  Future<void> _openLeaderSettings(String ownerUid) async {
+    if (ownerUid.isEmpty) return;
+    final result = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => CommunityLeaderSettingsScreen(
+          communityId: widget.communityId,
+          currentLeaderUid: ownerUid,
+          currentUserUid: widget.user.uid,
+        ),
+      ),
+    );
+    if (result == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('リーダー権限を移譲しました')),
+      );
+    }
+  }
+
+  Future<void> _confirmLeave({
+    required bool isLeader,
+    required int membersCount,
+  }) async {
+    if (_leaving) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          title: const Text('コミュニティを脱退'),
+          content: Text(
+            isLeader && membersCount <= 1
+                ? 'コミュニティを脱退すると、このコミュニティはメンバーがいなくなります。よろしいですか？'
+                : 'コミュニティから脱退しますか？',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(true),
+              child: const Text('脱退する'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm != true) return;
+
+    setState(() => _leaving = true);
+    try {
+      await _communityService.leaveCommunity(
+        communityId: widget.communityId,
+        userId: widget.user.uid,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop('left');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _leaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('脱退に失敗しました: $e')),
+      );
+    }
+  }
+}
+
+class _LeaveCommunitySection extends StatelessWidget {
+  const _LeaveCommunitySection({
+    required this.isLeader,
+    required this.membersCount,
+    required this.onLeave,
+    required this.leaving,
+  });
+
+  final bool isLeader;
+  final int membersCount;
+  final VoidCallback onLeave;
+  final bool leaving;
+
+  @override
+  Widget build(BuildContext context) {
+    final canLeave = !isLeader || membersCount <= 1;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        OutlinedButton.icon(
+          onPressed: (!canLeave || leaving) ? null : onLeave,
+          icon: const Icon(Icons.logout),
+          label: Text(leaving ? '処理中…' : 'コミュニティを脱退'),
+        ),
+        if (isLeader && !canLeave)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text(
+              'リーダーは別のメンバーにリーダー権限を渡してから脱退できます。',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ),
+      ],
     );
   }
 }
