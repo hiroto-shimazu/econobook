@@ -9,6 +9,7 @@ import 'community_activity_screen.dart';
 import 'community_chat_screen.dart';
 import 'community_links_screen.dart';
 import 'community_loan_screen.dart';
+import 'community_member_select_screen.dart';
 import 'member_chat_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
 
@@ -271,11 +272,27 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
                     const SizedBox(height: 12),
                     CommunityActivityPreview(communityId: widget.communityId),
                     const SizedBox(height: 28),
-                    Text('メンバー',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium!
-                            .copyWith(fontWeight: FontWeight.w700)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('メンバー',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium!
+                                .copyWith(fontWeight: FontWeight.w700)),
+                        TextButton.icon(
+                          onPressed: () => CommunityMemberSelectScreen.open(
+                            context,
+                            communityId: widget.communityId,
+                            communityName: communityName,
+                            currentUserUid: widget.user.uid,
+                            currentUserRole: role,
+                          ),
+                          icon: const Icon(Icons.check_circle_outline, size: 18),
+                          label: const Text('メンバーを選択'),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
                     StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: _membersStream,
