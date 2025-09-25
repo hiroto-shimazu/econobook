@@ -3,11 +3,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/community.dart';
+import '../services/chat_service.dart';
 import 'central_bank_screen.dart';
 import 'community_activity_screen.dart';
 import 'community_chat_screen.dart';
 import 'community_links_screen.dart';
 import 'community_loan_screen.dart';
+import 'member_chat_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
 
 DateTime? _homeReadTimestamp(dynamic value) {
@@ -70,6 +72,23 @@ class CommunityHomeScreen extends StatefulWidget {
 
 class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
   bool _showBalance = true;
+  late Future<List<_QuickShortcutMember>> _shortcutMembersFuture;
+  _QuickShortcutMember? _selectedShortcutMember;
+
+  @override
+  void initState() {
+    super.initState();
+    _shortcutMembersFuture = _loadShortcutMembers();
+  }
+
+  @override
+  void didUpdateWidget(covariant CommunityHomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.communityId != widget.communityId) {
+      _shortcutMembersFuture = _loadShortcutMembers();
+      _selectedShortcutMember = null;
+    }
+  }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> get _communityStream =>
       FirebaseFirestore.instance.doc('communities/${widget.communityId}').snapshots();
@@ -94,6 +113,47 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
           .where('cid', isEqualTo: widget.communityId)
           .limit(6)
           .snapshots();
+
+  Future<List<_QuickShortcutMember>> _loadShortcutMembers() async {
+    final membershipSnap = await FirebaseFirestore.instance
+        .collection('memberships')
+        .where('cid', isEqualTo: widget.communityId)
+        .get();
+
+    final futures = membershipSnap.docs.map((doc) async {
+      final data = doc.data();
+      final uid = data['uid'] as String?;
+      if (uid == null || uid.isEmpty || uid == widget.user.uid) {
+        return null;
+      }
+      final role = (data['role'] as String?) ?? 'member';
+      final userSnap =
+          await FirebaseFirestore.instance.doc('users/$uid').get();
+      final userData = userSnap.data();
+      final rawName = (userData?['displayName'] as String?)?.trim();
+      final displayName =
+          (rawName != null && rawName.isNotEmpty) ? rawName : uid;
+      final photoUrl = (userData?['photoUrl'] as String?)?.trim();
+      return _QuickShortcutMember(
+        uid: uid,
+        displayName: displayName,
+        photoUrl: (photoUrl != null && photoUrl.isNotEmpty)
+            ? photoUrl
+            : null,
+        role: role,
+      );
+    });
+
+    final members = <_QuickShortcutMember>[];
+    for (final future in futures) {
+      final member = await future;
+      if (member != null) {
+        members.add(member);
+      }
+    }
+    members.sort((a, b) => a.displayName.compareTo(b.displayName));
+    return members;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -178,17 +238,27 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    Text('ショートカット',
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium!
-                            .copyWith(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 12),
-                    _ActionGrid(
-                      onSend: () => _openSend(context),
-                      onRequest: () => _openRequest(context),
+                    _ShortcutSection(
+                      membersFuture: _shortcutMembersFuture,
+                      selectedMember: _selectedShortcutMember,
+                      onMemberSelected: (member) =>
+                          setState(() => _selectedShortcutMember = member),
+                      onReloadMembers: () => setState(
+                          () => _shortcutMembersFuture = _loadShortcutMembers()),
+                      onSend: () => _openSend(
+                        context,
+                        targetUid: _selectedShortcutMember?.uid,
+                      ),
+                      onRequest: () => _openRequest(
+                        context,
+                        targetUid: _selectedShortcutMember?.uid,
+                      ),
                       onHistory: () => _openHistory(context, communitySymbol),
-                      onMessages: () => _openMessages(context, communityName),
+                      onMessages: () => _openMessages(
+                        context,
+                        communityName,
+                        target: _selectedShortcutMember,
+                      ),
                       onLinks: () => _openLinks(context),
                       onBorrow: () => _openBorrow(context, communityName),
                     ),
@@ -270,21 +340,23 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
     );
   }
 
-  Future<void> _openSend(BuildContext context) async {
+  Future<void> _openSend(BuildContext context, {String? targetUid}) async {
     await TransactionFlowScreen.open(
       context,
       user: widget.user,
       communityId: widget.communityId,
       initialKind: TransactionKind.transfer,
+      initialMemberUid: targetUid,
     );
   }
 
-  Future<void> _openRequest(BuildContext context) async {
+  Future<void> _openRequest(BuildContext context, {String? targetUid}) async {
     await TransactionFlowScreen.open(
       context,
       user: widget.user,
       communityId: widget.communityId,
       initialKind: TransactionKind.request,
+      initialMemberUid: targetUid,
     );
   }
 
@@ -297,7 +369,27 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
     );
   }
 
-  Future<void> _openMessages(BuildContext context, String communityName) async {
+  Future<void> _openMessages(
+    BuildContext context,
+    String communityName, {
+    _QuickShortcutMember? target,
+  }) async {
+    if (target != null) {
+      final threadId =
+          ChatService.buildThreadId(widget.user.uid, target.uid);
+      await MemberChatScreen.open(
+        context,
+        communityId: widget.communityId,
+        communityName: communityName,
+        currentUser: widget.user,
+        partnerUid: target.uid,
+        partnerDisplayName: target.displayName,
+        partnerPhotoUrl: target.photoUrl,
+        threadId: threadId,
+        memberRole: target.role,
+      );
+      return;
+    }
     await CommunityChatScreen.open(
       context,
       communityId: widget.communityId,
@@ -499,8 +591,36 @@ class _PendingBanner extends StatelessWidget {
   }
 }
 
-class _ActionGrid extends StatelessWidget {
-  const _ActionGrid({
+class _QuickShortcutMember {
+  const _QuickShortcutMember({
+    required this.uid,
+    required this.displayName,
+    required this.role,
+    this.photoUrl,
+  });
+
+  final String uid;
+  final String displayName;
+  final String role;
+  final String? photoUrl;
+
+  String get roleLabel {
+    return switch (role) {
+      'owner' => 'オーナー',
+      'admin' => '管理者',
+      'mediator' => '仲介',
+      'pending' => '承認待ち',
+      _ => 'メンバー',
+    };
+  }
+}
+
+class _ShortcutSection extends StatelessWidget {
+  const _ShortcutSection({
+    required this.membersFuture,
+    required this.selectedMember,
+    required this.onMemberSelected,
+    required this.onReloadMembers,
     required this.onSend,
     required this.onRequest,
     required this.onHistory,
@@ -509,6 +629,10 @@ class _ActionGrid extends StatelessWidget {
     required this.onBorrow,
   });
 
+  final Future<List<_QuickShortcutMember>> membersFuture;
+  final _QuickShortcutMember? selectedMember;
+  final ValueChanged<_QuickShortcutMember?> onMemberSelected;
+  final VoidCallback onReloadMembers;
   final VoidCallback onSend;
   final VoidCallback onRequest;
   final VoidCallback onHistory;
@@ -518,93 +642,392 @@ class _ActionGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+    final titleStyle = Theme.of(context)
+            .textTheme
+            .titleMedium
+            ?.copyWith(fontWeight: FontWeight.w700) ??
+        const TextStyle(fontSize: 16, fontWeight: FontWeight.w700);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x11000000),
+            blurRadius: 16,
+            offset: Offset(0, 6),
+          )
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('ショートカット', style: titleStyle),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      _ShortcutActionButton(
+                        icon: Icons.send,
+                        label: '送金',
+                        color: Colors.blue,
+                        onTap: onSend,
+                      ),
+                      _ShortcutActionButton(
+                        icon: Icons.request_page,
+                        label: '請求',
+                        color: Colors.pink,
+                        onTap: onRequest,
+                      ),
+                      _ShortcutActionButton(
+                        icon: Icons.receipt_long,
+                        label: '履歴',
+                        color: Colors.orange,
+                        onTap: onHistory,
+                      ),
+                      _ShortcutActionButton(
+                        icon: Icons.chat_bubble_outline,
+                        label: 'メッセ',
+                        color: Colors.green,
+                        onTap: onMessages,
+                      ),
+                      _ShortcutActionButton(
+                        icon: Icons.link,
+                        label: 'リンク',
+                        color: Colors.indigo,
+                        onTap: onLinks,
+                      ),
+                      _ShortcutActionButton(
+                        icon: Icons.account_balance_wallet_outlined,
+                        label: '借入',
+                        color: Colors.teal,
+                        onTap: onBorrow,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (selectedMember != null) ...[
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                InputChip(
+                  avatar: _ShortcutMemberAvatar(
+                    name: selectedMember!.displayName,
+                    photoUrl: selectedMember!.photoUrl,
+                    radius: 14,
+                  ),
+                  label: Text(selectedMember!.displayName),
+                  onDeleted: () => onMemberSelected(null),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
+          FutureBuilder<List<_QuickShortcutMember>>(
+            future: membersFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'メンバーを読み込めませんでした: ${snapshot.error}',
+                      style: const TextStyle(color: Colors.black54),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: onReloadMembers,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('再試行'),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              final members = snapshot.data ?? const [];
+              if (members.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'メンバーがまだいません',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                );
+              }
+              return _ShortcutMemberSelector(
+                members: members,
+                selectedMember: selectedMember,
+                onSelected: onMemberSelected,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ShortcutActionButton extends StatelessWidget {
+  const _ShortcutActionButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 84,
+      height: 84,
+      child: Material(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShortcutMemberSelector extends StatefulWidget {
+  const _ShortcutMemberSelector({
+    required this.members,
+    required this.selectedMember,
+    required this.onSelected,
+  });
+
+  final List<_QuickShortcutMember> members;
+  final _QuickShortcutMember? selectedMember;
+  final ValueChanged<_QuickShortcutMember?> onSelected;
+
+  @override
+  State<_ShortcutMemberSelector> createState() =>
+      _ShortcutMemberSelectorState();
+}
+
+class _ShortcutMemberSelectorState extends State<_ShortcutMemberSelector> {
+  late List<_QuickShortcutMember> _filteredMembers;
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredMembers = List<_QuickShortcutMember>.from(widget.members);
+    _searchCtrl.addListener(_handleSearchChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ShortcutMemberSelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.members, widget.members)) {
+      setState(() {
+        _filteredMembers = _applyFilter(widget.members, _searchCtrl.text);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl
+      ..removeListener(_handleSearchChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _handleSearchChanged() {
+    setState(() {
+      _filteredMembers = _applyFilter(widget.members, _searchCtrl.text);
+    });
+  }
+
+  List<_QuickShortcutMember> _applyFilter(
+    List<_QuickShortcutMember> base,
+    String query,
+  ) {
+    final normalized = query.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return List<_QuickShortcutMember>.from(base);
+    }
+    return base
+        .where((member) =>
+            member.displayName.toLowerCase().contains(normalized) ||
+            member.uid.toLowerCase().contains(normalized))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final borderColor = Colors.black.withOpacity(0.08);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _ActionCard(
-          title: '送金する',
-          icon: Icons.send,
-          color: Colors.blue,
-          onTap: onSend,
+        TextField(
+          controller: _searchCtrl,
+          decoration: InputDecoration(
+            hintText: 'メンバーを検索',
+            prefixIcon: const Icon(Icons.search),
+            filled: true,
+            fillColor: const Color(0xFFF0F2F5),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+          ),
         ),
-        _ActionCard(
-          title: '請求する',
-          icon: Icons.request_page,
-          color: Colors.pink,
-          onTap: onRequest,
-        ),
-        _ActionCard(
-          title: '履歴',
-          icon: Icons.receipt_long,
-          color: Colors.orange,
-          onTap: onHistory,
-        ),
-        _ActionCard(
-          title: 'メッセージ',
-          icon: Icons.chat_bubble_outline,
-          color: Colors.green,
-          onTap: onMessages,
-        ),
-        _ActionCard(
-          title: 'リンク送金',
-          icon: Icons.link,
-          color: Colors.indigo,
-          onTap: onLinks,
-        ),
-        _ActionCard(
-          title: '借入する',
-          icon: Icons.account_balance_wallet_outlined,
-          color: Colors.teal,
-          onTap: onBorrow,
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            children: [
+              if (widget.selectedMember != null) ...[
+                ListTile(
+                  onTap: () => widget.onSelected(null),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.grey.shade200,
+                    child: const Icon(Icons.close, color: Colors.black87),
+                  ),
+                  title: const Text('選択を解除'),
+                ),
+                const Divider(height: 1),
+              ],
+              if (_filteredMembers.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Text(
+                    '該当するメンバーがいません',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _filteredMembers.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final member = _filteredMembers[index];
+                    final isSelected =
+                        widget.selectedMember?.uid == member.uid;
+                    return ListTile(
+                      onTap: () => widget.onSelected(
+                        isSelected ? null : member,
+                      ),
+                      leading: _ShortcutMemberAvatar(
+                        name: member.displayName,
+                        photoUrl: member.photoUrl,
+                      ),
+                      title: Text(
+                        member.displayName,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        member.roleLabel,
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                      trailing: isSelected
+                          ? Icon(Icons.check_circle,
+                              color: theme.colorScheme.primary)
+                          : null,
+                      selected: isSelected,
+                      selectedTileColor:
+                          theme.colorScheme.primary.withOpacity(0.08),
+                    );
+                  },
+                ),
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
-class _ActionCard extends StatelessWidget {
-  const _ActionCard({
-    required this.title,
-    required this.icon,
-    required this.color,
-    required this.onTap,
+class _ShortcutMemberAvatar extends StatelessWidget {
+  const _ShortcutMemberAvatar({
+    required this.name,
+    this.photoUrl,
+    this.radius = 20,
   });
 
-  final String title;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
+  final String name;
+  final String? photoUrl;
+  final double radius;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 160,
-      height: 160,
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: onTap,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircleAvatar(
-                radius: 28,
-                backgroundColor: color.withOpacity(0.15),
-                child: Icon(icon, size: 28, color: color),
+    final primary = Theme.of(context).colorScheme.primary;
+    final background = primary.withOpacity(0.15);
+    final initial = name.isNotEmpty ? name.characters.first.toUpperCase() : '?';
+
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: background,
+      backgroundImage: photoUrl == null ? null : NetworkImage(photoUrl!),
+      child: photoUrl == null
+          ? Text(
+              initial,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: primary,
+                fontSize: radius,
               ),
-              const SizedBox(height: 14),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-        ),
-      ),
+            )
+          : null,
     );
   }
 }

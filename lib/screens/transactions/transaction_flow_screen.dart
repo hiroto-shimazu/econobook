@@ -25,20 +25,26 @@ class TransactionFlowScreen extends StatefulWidget {
     required this.user,
     this.initialCommunityId,
     this.initialKind,
+    this.initialMemberUid,
   });
 
   final User user;
   final String? initialCommunityId;
   final TransactionKind? initialKind;
+  final String? initialMemberUid;
 
   static Future<bool?> open(BuildContext context,
-      {required User user, String? communityId, TransactionKind? initialKind}) {
+      {required User user,
+      String? communityId,
+      TransactionKind? initialKind,
+      String? initialMemberUid}) {
     return Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => TransactionFlowScreen(
           user: user,
           initialCommunityId: communityId,
           initialKind: initialKind,
+          initialMemberUid: initialMemberUid,
         ),
       ),
     );
@@ -74,6 +80,11 @@ class _TransactionFlowScreenState extends State<TransactionFlowScreen> {
   void initState() {
     super.initState();
     _kind = widget.initialKind ?? TransactionKind.transfer;
+    _transferTargetUid = widget.initialMemberUid;
+    _requestTargetUid = widget.initialMemberUid;
+    if (widget.initialMemberUid != null) {
+      _splitTargets.add(widget.initialMemberUid!);
+    }
     _communitiesFuture = _loadCommunityOptions();
   }
 
@@ -249,6 +260,7 @@ class _TransactionFlowScreenState extends State<TransactionFlowScreen> {
                   return _errorState('メンバーの読み込みに失敗しました: ${snapshot.error}');
                 }
                 final members = snapshot.data ?? const [];
+                _syncSelectionsWithMembers(members);
                 return _buildFormForKind(context, selectedCommunity, members);
               },
             ),
@@ -256,6 +268,33 @@ class _TransactionFlowScreenState extends State<TransactionFlowScreen> {
         ],
       ),
     );
+  }
+
+  void _syncSelectionsWithMembers(List<_MemberOption> members) {
+    final available = members.map((m) => m.uid).toSet();
+    final invalidTransfer =
+        _transferTargetUid != null && !available.contains(_transferTargetUid);
+    final invalidRequest =
+        _requestTargetUid != null && !available.contains(_requestTargetUid);
+    final invalidSplit =
+        _splitTargets.any((uid) => !available.contains(uid));
+
+    if (invalidTransfer || invalidRequest || invalidSplit) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          if (invalidTransfer) {
+            _transferTargetUid = null;
+          }
+          if (invalidRequest) {
+            _requestTargetUid = null;
+          }
+          if (invalidSplit) {
+            _splitTargets.removeWhere((uid) => !available.contains(uid));
+          }
+        });
+      });
+    }
   }
 
   Widget _kindSelector() {
