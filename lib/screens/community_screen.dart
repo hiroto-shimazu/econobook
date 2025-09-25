@@ -63,12 +63,41 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final CommunityService _communityService = CommunityService();
   Set<String> _myCommunityIds = <String>{};
+  late final Query<Map<String, dynamic>> _talkThreadsQuery;
+  late final Stream<int> _pendingRequestsCountStream;
+  _TalkFilter? _selectedTalkFilter = _TalkFilter.unread;
+  _TalkSort _selectedTalkSort = _TalkSort.unreadFirst;
+  String _searchKeyword = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _talkThreadsQuery = FirebaseFirestore.instance
+        .collectionGroup('threads')
+        .where('participants', arrayContains: widget.user.uid);
+    _pendingRequestsCountStream = FirebaseFirestore.instance
+        .collectionGroup('items')
+        .where('toUid', isEqualTo: widget.user.uid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) => snap.size);
+    _searchCtrl.addListener(_handleSearchChanged);
+  }
 
   @override
   void dispose() {
     _inviteCtrl.dispose();
+    _searchCtrl.removeListener(_handleSearchChanged);
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  void _handleSearchChanged() {
+    final keyword = _searchCtrl.text.trim();
+    if (keyword == _searchKeyword) {
+      return;
+    }
+    setState(() => _searchKeyword = keyword);
   }
 
   Widget _buildCommunityList(
@@ -210,33 +239,453 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     );
   }
 
-  Widget _buildTalkComingSoon() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            Icon(Icons.chat_bubble_outline, size: 48, color: kTextSub),
-            SizedBox(height: 16),
-            Text(
-              'トークは近日公開予定です',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: kTextMain,
+  Widget _buildTalkTab() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _talkThreadsQuery.snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return _errorNotice('トークを取得できませんでした: ${snapshot.error}');
+        }
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return _buildTalkScaffold(children: [_talkEmptyState()]);
+        }
+
+        return FutureBuilder<List<_TalkEntry?>>(
+          future: Future.wait(docs.map(_buildTalkEntry)),
+          builder: (context, metaSnap) {
+            if (metaSnap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (metaSnap.hasError) {
+              return _errorNotice('トークを処理できませんでした: ${metaSnap.error}');
+            }
+            final entries =
+                (metaSnap.data ?? const <_TalkEntry?>[]).whereType<_TalkEntry>().toList();
+            if (entries.isEmpty) {
+              return _buildTalkScaffold(children: [_talkEmptyState()]);
+            }
+
+            final filtered = _applyTalkFilters(entries);
+            if (filtered.isEmpty) {
+              return _buildTalkScaffold(
+                children: [
+                  _talkEmptyState(message: '条件に一致するトークがありません'),
+                ],
+              );
+            }
+
+            final pinned = filtered.where((e) => e.isPinned).toList();
+            final unread =
+                filtered.where((e) => !e.isPinned && e.unreadCount > 0).toList();
+            final recent =
+                filtered.where((e) => !e.isPinned && e.unreadCount == 0).toList();
+
+            _applyTalkSort(pinned);
+            _applyTalkSort(unread);
+            _applyTalkSort(recent);
+
+            final content = <Widget>[
+              StreamBuilder<int>(
+                stream: _pendingRequestsCountStream,
+                builder: (context, requestSnap) {
+                  final count = requestSnap.data ?? 0;
+                  if (count <= 0) {
+                    return const SizedBox.shrink();
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PendingRequestBanner(
+                        count: count,
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                                content: Text('承認待ちリクエスト画面は準備中です')),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                },
               ),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'コミュニティ内のやりとりがよりスムーズに。\n近日アップデートをお待ちください。',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: kTextSub),
-            ),
-          ],
+              _buildTalkFilters(),
+            ];
+
+            void addSection(String title, List<_TalkEntry> items) {
+              if (items.isEmpty) return;
+              content
+                ..add(const SizedBox(height: 24))
+                ..add(_sectionHeader(title))
+                ..add(const SizedBox(height: 8));
+              for (final entry in items) {
+                content
+                  ..add(_TalkThreadTile(
+                    entry: entry,
+                    timeLabel: _formatTalkTime(entry.updatedAt),
+                    onTap: () => _openThread(context, entry),
+                    onTogglePin: () => _togglePin(entry, context),
+                  ))
+                  ..add(const SizedBox(height: 12));
+              }
+            }
+
+            addSection('ピン留め', pinned);
+            addSection('未読', unread);
+            addSection('最近', recent);
+
+            if (pinned.isEmpty && unread.isEmpty && recent.isEmpty) {
+              content
+                ..add(const SizedBox(height: 32))
+                ..add(_talkEmptyState(message: '条件に一致するトークがありません'));
+            }
+
+            return _buildTalkScaffold(children: content);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildTalkScaffold({required List<Widget> children}) {
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 140),
+      children: children,
+    );
+  }
+
+  List<_TalkEntry> _applyTalkFilters(List<_TalkEntry> entries) {
+    final keyword = _searchKeyword.toLowerCase();
+    final filter = _selectedTalkFilter;
+    return [
+      for (final entry in entries)
+        if ((keyword.isEmpty ||
+                ('${entry.communityName} ${entry.partnerDisplayName} '
+                        '${entry.previewText}')
+                    .toLowerCase()
+                    .contains(keyword)) &&
+            _matchesTalkFilter(filter, entry))
+          entry
+    ];
+  }
+
+  bool _matchesTalkFilter(_TalkFilter? filter, _TalkEntry entry) {
+    if (filter == null) return true;
+    return switch (filter) {
+      _TalkFilter.unread => entry.unreadCount > 0,
+      _TalkFilter.mention => entry.hasMention,
+      _TalkFilter.active => true,
+      _TalkFilter.pinned => entry.isPinned,
+    };
+  }
+
+  void _applyTalkSort(List<_TalkEntry> entries) {
+    switch (_selectedTalkSort) {
+      case _TalkSort.unreadFirst:
+        entries.sort((a, b) {
+          final unreadCompare = b.unreadCount.compareTo(a.unreadCount);
+          if (unreadCompare != 0) return unreadCompare;
+          final timeA = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final timeB = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return timeB.compareTo(timeA);
+        });
+        break;
+      case _TalkSort.recent:
+        entries.sort((a, b) {
+          final timeA = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final timeB = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return timeB.compareTo(timeA);
+        });
+        break;
+      case _TalkSort.name:
+        entries.sort((a, b) => a.partnerDisplayName
+            .toLowerCase()
+            .compareTo(b.partnerDisplayName.toLowerCase()));
+        break;
+    }
+  }
+
+  List<_TalkFilterChipData> get _talkFilterChips => const [
+        _TalkFilterChipData(
+          label: '未読',
+          filter: _TalkFilter.unread,
+          color: kBrandBlue,
         ),
+        _TalkFilterChipData(
+          label: 'メンション',
+          filter: _TalkFilter.mention,
+          color: kAccentOrange,
+        ),
+        _TalkFilterChipData(
+          label: '参加中',
+          filter: _TalkFilter.active,
+          color: kBrandBlue,
+        ),
+        _TalkFilterChipData(
+          label: 'ピン留め',
+          filter: _TalkFilter.pinned,
+          color: kBrandBlue,
+        ),
+      ];
+
+  Widget _buildTalkFilters() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final chip in _talkFilterChips)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _TalkFilterChip(
+                      label: chip.label,
+                      isActive: _selectedTalkFilter == chip.filter,
+                      color: chip.color,
+                      onTap: () {
+                        setState(() {
+                          if (_selectedTalkFilter == chip.filter) {
+                            _selectedTalkFilter = null;
+                          } else {
+                            _selectedTalkFilter = chip.filter;
+                          }
+                        });
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        DropdownButtonHideUnderline(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: DropdownButton<_TalkSort>(
+              value: _selectedTalkSort,
+              icon: const Icon(Icons.expand_more, size: 20, color: kTextSub),
+              items: const [
+                DropdownMenuItem(
+                  value: _TalkSort.unreadFirst,
+                  child: Text('未読優先'),
+                ),
+                DropdownMenuItem(
+                  value: _TalkSort.recent,
+                  child: Text('最近更新'),
+                ),
+                DropdownMenuItem(
+                  value: _TalkSort.name,
+                  child: Text('名前順'),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _selectedTalkSort = value);
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _talkEmptyState({String message = 'まだトークはありません'}) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: kBrandBlue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(Icons.chat_bubble_outline, color: kBrandBlue),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: kTextMain,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'メンバーとコミュニケーションを始めましょう。',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: kTextSub),
+          ),
+        ],
       ),
     );
+  }
+
+  Future<_TalkEntry?> _buildTalkEntry(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    try {
+      final parentCommunity = doc.reference.parent.parent;
+      if (parentCommunity == null) {
+        return null;
+      }
+      final data = doc.data();
+      final communityId = parentCommunity.id;
+      final communitySnap = await parentCommunity.get();
+      final communityData = communitySnap.data() ?? <String, dynamic>{};
+      final communityName =
+          (communityData['name'] as String?) ?? communityId;
+      final communityCover = (communityData['coverUrl'] as String?)?.trim();
+
+      final participants = List<String>.from(
+          (data['participants'] as List?) ?? const <String>[]);
+      final otherUid = participants.firstWhere(
+        (uid) => uid != widget.user.uid,
+        orElse: () => '',
+      );
+      if (otherUid.isEmpty) {
+        return null;
+      }
+
+      final userSnap =
+          await FirebaseFirestore.instance.doc('users/$otherUid').get();
+      final userData = userSnap.data() ?? <String, dynamic>{};
+      final rawName = (userData['displayName'] as String?)?.trim();
+      final displayName =
+          (rawName != null && rawName.isNotEmpty) ? rawName : otherUid;
+      final photoUrl = (userData['photoUrl'] as String?)?.trim();
+
+      final unreadMap = Map<String, dynamic>.from(
+          (data['unreadCounts'] as Map?) ?? const <String, dynamic>{});
+      final unreadRaw = unreadMap[widget.user.uid];
+      final unread = unreadRaw is num ? unreadRaw.toInt() : 0;
+
+      final pinnedBy = List<String>.from((data['pinnedBy'] as List?) ?? const []);
+      final updatedAt = _readTimestamp(data['updatedAt']);
+      final lastMessage = (data['lastMessage'] as String?)?.trim() ?? '';
+      final lastSenderUid = (data['lastSenderUid'] as String?) ?? '';
+      final hasMention = _detectMention(lastMessage, lastSenderUid);
+
+      final previewText = lastMessage.isEmpty
+          ? 'メッセージはまだありません'
+          : (lastSenderUid == widget.user.uid
+              ? 'あなた: $lastMessage'
+              : '$displayName: $lastMessage');
+
+      return _TalkEntry(
+        threadId: doc.id,
+        communityId: communityId,
+        communityName: communityName,
+        communityCoverUrl: communityCover,
+        partnerUid: otherUid,
+        partnerDisplayName: displayName,
+        partnerPhotoUrl: photoUrl,
+        previewText: previewText,
+        unreadCount: unread,
+        updatedAt: updatedAt,
+        hasMention: hasMention,
+        isPinned: pinnedBy.contains(widget.user.uid),
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  bool _detectMention(String message, String senderUid) {
+    if (message.isEmpty || senderUid == widget.user.uid) return false;
+    final lowerMessage = message.toLowerCase();
+    final displayName = widget.user.displayName;
+    if (displayName == null || displayName.trim().isEmpty) {
+      return lowerMessage.contains('@${widget.user.uid.toLowerCase()}');
+    }
+    final nameLower = displayName.toLowerCase();
+    return lowerMessage.contains('@$nameLower') ||
+        lowerMessage.contains('@${widget.user.uid.toLowerCase()}');
+  }
+
+  Future<void> _togglePin(_TalkEntry entry, BuildContext context) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('community_chats')
+          .doc(entry.communityId)
+          .collection('threads')
+          .doc(entry.threadId)
+          .set({
+        'pinnedBy': entry.isPinned
+            ? FieldValue.arrayRemove([widget.user.uid])
+            : FieldValue.arrayUnion([widget.user.uid]),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ピン留めを変更できませんでした: $e')),
+      );
+    }
+  }
+
+  Future<void> _openThread(BuildContext context, _TalkEntry entry) async {
+    try {
+      final memberSnap = await FirebaseFirestore.instance
+          .doc('memberships/${entry.communityId}_${entry.partnerUid}')
+          .get();
+      final role = (memberSnap.data()?['role'] as String?) ?? 'member';
+      if (!mounted) return;
+      await MemberChatScreen.open(
+        context,
+        communityId: entry.communityId,
+        communityName: entry.communityName,
+        currentUser: widget.user,
+        partnerUid: entry.partnerUid,
+        partnerDisplayName: entry.partnerDisplayName,
+        partnerPhotoUrl: entry.partnerPhotoUrl,
+        threadId: entry.threadId,
+        memberRole: role,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('チャットを開けませんでした: $e')),
+      );
+    }
+  }
+
+  String? _formatTalkTime(DateTime? time) {
+    if (time == null) return null;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(time.year, time.month, time.day);
+    if (target == today) {
+      final hours = time.hour.toString().padLeft(2, '0');
+      final minutes = time.minute.toString().padLeft(2, '0');
+      return '$hours:$minutes';
+    }
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (target == yesterday) {
+      return '昨日';
+    }
+    if (now.year == time.year) {
+      return '${time.month}/${time.day}';
+    }
+    return '${time.year}/${time.month}/${time.day}';
   }
 
   @override
@@ -343,7 +792,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                   children: [
                     _buildCommunityList(
                         context, membershipsQuery, discoverQuery),
-                    _buildTalkComingSoon(),
+                    _buildTalkTab(),
                   ],
                 ),
               ),
@@ -1381,6 +1830,400 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
         SnackBar(content: Text('脱退に失敗しました: $e')),
       );
     }
+  }
+}
+
+enum _TalkFilter { unread, mention, active, pinned }
+
+enum _TalkSort { unreadFirst, recent, name }
+
+class _TalkFilterChipData {
+  const _TalkFilterChipData({
+    required this.label,
+    required this.filter,
+    required this.color,
+  });
+
+  final String label;
+  final _TalkFilter filter;
+  final Color color;
+}
+
+class _TalkFilterChip extends StatelessWidget {
+  const _TalkFilterChip({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+    required this.color,
+  });
+
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = isActive ? color : Colors.white;
+    final textColor = isActive ? Colors.white : kTextMain;
+    final borderColor = isActive ? color : const Color(0xFFE2E8F0);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: borderColor),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: color.withOpacity(0.2),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ]
+                : [],
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PendingRequestBanner extends StatelessWidget {
+  const _PendingRequestBanner({required this.count, required this.onPressed});
+
+  final int count;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kBrandBlue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: kBrandBlue.withOpacity(0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: kBrandBlue.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.info_outline,
+              color: kBrandBlue,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                text: '$count件',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: kTextMain,
+                ),
+                children: const [
+                  TextSpan(
+                    text: 'の承認待ち依頼があります。',
+                    style: TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ],
+              ),
+              style: const TextStyle(fontSize: 13, color: kTextMain),
+            ),
+          ),
+          TextButton(
+            onPressed: onPressed,
+            style: TextButton.styleFrom(
+              foregroundColor: kBrandBlue,
+              textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            child: const Text('確認する'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TalkEntry {
+  const _TalkEntry({
+    required this.threadId,
+    required this.communityId,
+    required this.communityName,
+    this.communityCoverUrl,
+    required this.partnerUid,
+    required this.partnerDisplayName,
+    this.partnerPhotoUrl,
+    required this.previewText,
+    required this.unreadCount,
+    this.updatedAt,
+    required this.hasMention,
+    required this.isPinned,
+  });
+
+  final String threadId;
+  final String communityId;
+  final String communityName;
+  final String? communityCoverUrl;
+  final String partnerUid;
+  final String partnerDisplayName;
+  final String? partnerPhotoUrl;
+  final String previewText;
+  final int unreadCount;
+  final DateTime? updatedAt;
+  final bool hasMention;
+  final bool isPinned;
+}
+
+class _TalkThreadTile extends StatelessWidget {
+  const _TalkThreadTile({
+    required this.entry,
+    required this.timeLabel,
+    required this.onTap,
+    required this.onTogglePin,
+  });
+
+  final _TalkEntry entry;
+  final String? timeLabel;
+  final VoidCallback onTap;
+  final VoidCallback onTogglePin;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = entry.isPinned
+        ? kBrandBlue.withOpacity(0.1)
+        : entry.unreadCount > 0
+            ? kBrandBlue.withOpacity(0.08)
+            : kCardWhite;
+    final borderColor = entry.isPinned
+        ? kBrandBlue.withOpacity(0.4)
+        : const Color(0xFFE2E8F0);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: borderColor),
+            boxShadow: entry.isPinned || entry.unreadCount > 0
+                ? [
+                    BoxShadow(
+                      color: kBrandBlue.withOpacity(0.12),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ]
+                : [],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _TalkAvatar(
+                name: entry.partnerDisplayName,
+                photoUrl: entry.partnerPhotoUrl,
+                fallbackBackground: entry.communityCoverUrl,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            entry.communityName,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: kTextSub,
+                            ),
+                          ),
+                        ),
+                        if (timeLabel != null)
+                          Text(
+                            timeLabel!,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: kTextSub,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            entry.partnerDisplayName,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: kTextMain,
+                            ),
+                          ),
+                        ),
+                        if (entry.hasMention)
+                          Container(
+                            margin: const EdgeInsets.only(left: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: kAccentOrange,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: const Text(
+                              '@',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      entry.previewText,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: kTextSub,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  IconButton(
+                    onPressed: onTogglePin,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints.tightFor(width: 32, height: 32),
+                    icon: Icon(
+                      entry.isPinned
+                          ? Icons.push_pin
+                          : Icons.push_pin_outlined,
+                      size: 20,
+                      color: entry.isPinned ? kBrandBlue : kTextSub,
+                    ),
+                  ),
+                  if (entry.unreadCount > 0) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: kBrandBlue,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        entry.unreadCount > 99
+                            ? '99+'
+                            : entry.unreadCount.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TalkAvatar extends StatelessWidget {
+  const _TalkAvatar({
+    required this.name,
+    this.photoUrl,
+    this.fallbackBackground,
+  });
+
+  final String name;
+  final String? photoUrl;
+  final String? fallbackBackground;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPhoto = photoUrl != null && photoUrl!.isNotEmpty;
+    DecorationImage? image;
+    if (hasPhoto) {
+      image = DecorationImage(
+        image: NetworkImage(photoUrl!),
+        fit: BoxFit.cover,
+      );
+    } else if (fallbackBackground != null && fallbackBackground!.isNotEmpty) {
+      image = DecorationImage(
+        image: NetworkImage(fallbackBackground!),
+        fit: BoxFit.cover,
+      );
+    }
+
+    return Container(
+      width: 52,
+      height: 52,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: kBrandBlue.withOpacity(0.1),
+        image: image,
+      ),
+      child: (image == null)
+          ? Center(
+              child: Text(
+                name.isNotEmpty
+                    ? name.characters.first.toUpperCase()
+                    : '?',
+                style: const TextStyle(
+                  color: kBrandBlue,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            )
+          : null,
+    );
   }
 }
 
