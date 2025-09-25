@@ -34,6 +34,51 @@ enum MemberSortOption {
   trust,
 }
 
+enum _CommunityDashboardTab {
+  overview,
+  talk,
+  wallet,
+  members,
+  settings,
+  bank,
+}
+
+extension _CommunityDashboardTabLabel on _CommunityDashboardTab {
+  String get label {
+    switch (this) {
+      case _CommunityDashboardTab.overview:
+        return '概要';
+      case _CommunityDashboardTab.talk:
+        return 'トーク';
+      case _CommunityDashboardTab.wallet:
+        return 'ウォレット';
+      case _CommunityDashboardTab.members:
+        return 'メンバー';
+      case _CommunityDashboardTab.settings:
+        return 'コミュ設定';
+      case _CommunityDashboardTab.bank:
+        return 'バンク';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case _CommunityDashboardTab.overview:
+        return Icons.dashboard_outlined;
+      case _CommunityDashboardTab.talk:
+        return Icons.forum_outlined;
+      case _CommunityDashboardTab.wallet:
+        return Icons.account_balance_wallet_outlined;
+      case _CommunityDashboardTab.members:
+        return Icons.groups_2_outlined;
+      case _CommunityDashboardTab.settings:
+        return Icons.settings_outlined;
+      case _CommunityDashboardTab.bank:
+        return Icons.account_balance_outlined;
+    }
+  }
+}
+
 class CommunityMemberSelectScreen extends StatefulWidget {
   const CommunityMemberSelectScreen({
     super.key,
@@ -96,6 +141,13 @@ class _CommunityMemberSelectScreenState
   String _searchQuery = '';
   final Set<String> _selectedUids = <String>{};
 
+  final Map<_CommunityDashboardTab, GlobalKey> _sectionKeys = {
+    for (final tab in _CommunityDashboardTab.values) tab: GlobalKey(),
+  };
+  _CommunityDashboardTab _activeDashboardTab =
+      _CommunityDashboardTab.overview;
+
+
   @override
   void initState() {
     super.initState();
@@ -116,6 +168,387 @@ class _CommunityMemberSelectScreenState
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _handleDashboardTabSelected(_CommunityDashboardTab tab) {
+    if (_activeDashboardTab != tab) {
+      setState(() => _activeDashboardTab = tab);
+    }
+    _scrollToSection(tab);
+  }
+
+  void _scrollToSection(_CommunityDashboardTab tab) {
+    final targetKey = _sectionKeys[tab];
+    final context = targetKey?.currentContext;
+    if (context == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _scrollToSection(tab);
+        }
+      });
+      return;
+    }
+    Scrollable.ensureVisible(
+      context,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeInOut,
+      alignment: 0,
+      alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+    );
+  }
+
+  Widget _buildOverviewSection(num selectedBalance, String currencyCode) {
+    final totalMembers = _members.length;
+    final selectedCount = _selectedUids.length;
+    final minorCount =
+        _members.where((member) => member.profile?.minor == true).length;
+    final pendingCount = _pendingCount;
+    final selectionText = selectedCount > 0
+        ? '選択中: $selectedCount人 · 合計残高 ${selectedBalance.toStringAsFixed(2)} $currencyCode'
+        : 'まだメンバーは選択されていません。';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.dashboard_customize_outlined,
+          title: 'コミュニティ概要',
+        ),
+        const SizedBox(height: 16),
+        _OverviewCards(
+          totalMembers: totalMembers,
+          pendingCount: pendingCount,
+          bankManagerCount: _bankManagerCount,
+          minorCount: minorCount,
+        ),
+        const SizedBox(height: 20),
+        _InfoPanel(
+          icon: Icons.calendar_month,
+          title: '今月のまとめ',
+          lines: [
+            'メンバー総数: ${totalMembers}人',
+            selectionText,
+            '中央銀行権限: ${_bankManagerCount}人 · 未成年: ${minorCount}人',
+          ],
+        ),
+        const SizedBox(height: 16),
+        _InfoPanel(
+          icon: Icons.pending_actions,
+          iconColor: _kAccentOrange,
+          backgroundColor: _kAccentOrange.withOpacity(0.12),
+          title: '承認待ちステータス',
+          lines: [
+            if (pendingCount > 0)
+              '承認待ちリクエストが${pendingCount}件あります。'
+            else
+              '現在承認待ちの依頼はありません。',
+            '承認キューからレビューや承認を実行できます。',
+          ],
+          actionLabel: pendingCount > 0 ? 'キューを開く' : null,
+          onAction: pendingCount > 0
+              ? () => _showNotImplemented('承認キュー')
+              : null,
+        ),
+        const SizedBox(height: 16),
+        _InfoPanel(
+          icon: Icons.timeline,
+          iconColor: _kSubGreen,
+          backgroundColor: _kSubGreen.withOpacity(0.12),
+          title: '最近のトーク / 取引',
+          lines: const [
+            '最新のトピックや取引の概要を下のタブから確認できます。',
+            '詳しく見るには「トーク」「ウォレット」タブをタップしてください。',
+          ],
+          actionLabel: 'トークへ移動',
+          onAction: () =>
+              _handleDashboardTabSelected(_CommunityDashboardTab.talk),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTalkSection() {
+    const talkItems = [
+      _TalkItem(
+        channel: '#general',
+        snippet: '鈴木: 今日のランチどうしますか？',
+        timeLabel: '10:24',
+        unreadCount: 3,
+      ),
+      _TalkItem(
+        channel: '#settlement',
+        snippet: '@佐藤: 会費の承認お願いします',
+        timeLabel: '昨日',
+      ),
+      _TalkItem(
+        channel: '#research',
+        snippet: '田中: 新しい論文ドラフトを共有しました。',
+        timeLabel: '2日前',
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.forum_outlined,
+          title: 'トーク',
+          color: _kMainBlue,
+        ),
+        const SizedBox(height: 16),
+        for (final item in talkItems)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _SectionCard(
+              leading: const _RoundIcon(
+                icon: Icons.tag,
+                backgroundColor: Color(0xFFF1F5F9),
+                foregroundColor: _kTextSub,
+              ),
+              title: Text(
+                item.channel,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: _kTextMain,
+                ),
+              ),
+              subtitle: Text(
+                item.snippet,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: _kTextSub,
+                ),
+              ),
+              trailing: _TalkTrailing(
+                timeLabel: item.timeLabel,
+                unreadCount: item.unreadCount,
+              ),
+              onTap: () => _showNotImplemented('チャンネル ${item.channel}'),
+            ),
+          ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => _showNotImplemented('トーク'),
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('トーク一覧を開く'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWalletSection(String currencyCode) {
+    final walletItems = [
+      _WalletItem(
+        title: '研究会会費',
+        counterparty: '山田太郎',
+        amount: 2500.0,
+        timeLabel: '今日 09:12',
+        type: WalletActivityType.deposit,
+      ),
+      _WalletItem(
+        title: '備品購入',
+        counterparty: '佐藤花子',
+        amount: 1200.0,
+        timeLabel: '昨日',
+        type: WalletActivityType.withdrawal,
+      ),
+      _WalletItem(
+        title: '部室ドリンク補充',
+        counterparty: '小林',
+        amount: 800.0,
+        timeLabel: '3日前',
+        type: WalletActivityType.withdrawal,
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.account_balance_wallet_outlined,
+          title: 'ウォレット',
+          color: _kSubGreen,
+        ),
+        const SizedBox(height: 16),
+        for (final item in walletItems)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _SectionCard(
+              leading: _RoundIcon(
+                icon: item.type == WalletActivityType.deposit
+                    ? Icons.south_west
+                    : Icons.north_east,
+                backgroundColor: item.type == WalletActivityType.deposit
+                    ? const Color(0xFFE0F2FE)
+                    : const Color(0xFFFFE4E6),
+                foregroundColor: item.type == WalletActivityType.deposit
+                    ? _kMainBlue
+                    : const Color(0xFFDC2626),
+              ),
+              title: Text(
+                item.title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: _kTextMain,
+                ),
+              ),
+              subtitle: Text(
+                '${item.counterparty} · ${item.timeLabel}',
+                style: const TextStyle(fontSize: 13, color: _kTextSub),
+              ),
+              trailing: Text(
+                '${item.type == WalletActivityType.deposit ? '+' : '-'}${item.amount.toStringAsFixed(0)} $currencyCode',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: item.type == WalletActivityType.deposit
+                      ? _kSubGreen
+                      : const Color(0xFFDC2626),
+                ),
+              ),
+              onTap: () => _showNotImplemented(item.title),
+            ),
+          ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => _showNotImplemented('ウォレット'),
+            icon: const Icon(Icons.account_balance_wallet_outlined),
+            label: const Text('ウォレットを開く'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSettingsSection() {
+    const settings = [
+      _SettingsItem(
+        icon: Icons.edit_outlined,
+        title: 'コミュニティプロフィール',
+        description: 'カバー画像や説明文、タグを編集します。',
+      ),
+      _SettingsItem(
+        icon: Icons.admin_panel_settings_outlined,
+        title: 'メンバー権限',
+        description: '管理者・中央銀行権限・モデレーターを設定。',
+      ),
+      _SettingsItem(
+        icon: Icons.notifications_active_outlined,
+        title: '通知ルール',
+        description: '承認待ちや重大トピックの通知を調整します。',
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.settings_outlined,
+          title: 'コミュ設定',
+          color: _kTextSub,
+        ),
+        const SizedBox(height: 16),
+        for (final item in settings)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _SectionCard(
+              leading: _RoundIcon(
+                icon: item.icon,
+                backgroundColor: const Color(0xFFF1F5F9),
+                foregroundColor: _kTextMain,
+              ),
+              title: Text(
+                item.title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: _kTextMain,
+                ),
+              ),
+              subtitle: Text(
+                item.description,
+                style: const TextStyle(fontSize: 13, color: _kTextSub),
+              ),
+              trailing: const Icon(Icons.chevron_right, color: _kTextSub),
+              onTap: () => _showNotImplemented(item.title),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildBankSection(String currencyCode) {
+    const bankActions = [
+      _BankAction(
+        icon: Icons.payments_outlined,
+        title: '一括送金リクエスト',
+        description: '選択したメンバーへボーナスや報酬をまとめて送金。',
+      ),
+      _BankAction(
+        icon: Icons.lock_reset,
+        title: '残高調整 / 凍結',
+        description: '規約違反時の残高調整やウォレット凍結を実施。',
+      ),
+      _BankAction(
+        icon: Icons.bar_chart_outlined,
+        title: '経済インサイト',
+        description: '取引量や貯蓄額の推移を可視化します。',
+      ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionTitle(
+          icon: Icons.account_balance_outlined,
+          title: 'バンク',
+          color: _kMainBlue,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          '通貨: $currencyCode',
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: _kTextSub,
+          ),
+        ),
+        const SizedBox(height: 12),
+        for (final action in bankActions)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _SectionCard(
+              leading: _RoundIcon(
+                icon: action.icon,
+                backgroundColor: const Color(0xFFEFF6FF),
+                foregroundColor: _kMainBlue,
+              ),
+              title: Text(
+                action.title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: _kTextMain,
+                ),
+              ),
+              subtitle: Text(
+                action.description,
+                style: const TextStyle(fontSize: 13, color: _kTextSub),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: _kTextSub),
+              onTap: () => _showNotImplemented(action.title),
+            ),
+          ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => _showNotImplemented('バンクダッシュボード'),
+            icon: const Icon(Icons.account_balance),
+            label: const Text('中央銀行ダッシュボード'),
+          ),
+        ),
+      ],
+    );
   }
 
   void _subscribeCommunity() {
@@ -578,6 +1011,44 @@ class _CommunityMemberSelectScreenState
                     ),
                   ),
                   SliverToBoxAdapter(child: _buildFilterSection(theme)),
+                  SliverPersistentHeader(
+                    pinned: true,
+                    delegate: _PinnedTabHeaderDelegate(
+                      activeTab: _activeDashboardTab,
+                      onSelected: _handleDashboardTabSelected,
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Container(
+                      key: _sectionKeys[_CommunityDashboardTab.overview],
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                      child:
+                          _buildOverviewSection(selectedBalance, currencyCode),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Container(
+                      key: _sectionKeys[_CommunityDashboardTab.talk],
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                      child: _buildTalkSection(),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Container(
+                      key: _sectionKeys[_CommunityDashboardTab.wallet],
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                      child: _buildWalletSection(currencyCode),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Container(
+                      key: _sectionKeys[_CommunityDashboardTab.members],
+                      child: _buildFilterSection(theme),
+                    ),
+                  ),
                   if (_membersLoading && _members.isEmpty)
                     const SliverToBoxAdapter(
                       child: Padding(
@@ -617,6 +1088,9 @@ class _CommunityMemberSelectScreenState
                               currencyCode: currencyCode,
                               onTap: () => _toggleSelection(
                                   member.membership.userId),
+                              onTap: () =>
+                                  _toggleSelection(member.membership.userId),
+
                               onDetail: () => _showMemberDetail(member),
                             ),
                           );
@@ -624,6 +1098,24 @@ class _CommunityMemberSelectScreenState
                         childCount: members.length,
                       ),
                     ),
+
+                  SliverToBoxAdapter(
+                    child: Container(
+                      key: _sectionKeys[_CommunityDashboardTab.settings],
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+                      child: _buildSettingsSection(),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: Container(
+                      key: _sectionKeys[_CommunityDashboardTab.bank],
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+                      child: _buildBankSection(currencyCode),
+                    ),
+                  ),
+
                   const SliverToBoxAdapter(child: SizedBox(height: 140)),
                 ],
               ),
@@ -1070,6 +1562,468 @@ class _HeaderIconButton extends StatelessWidget {
     );
   }
 }
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({
+    required this.icon,
+    required this.title,
+    this.color = _kMainBlue,
+  });
+
+  final IconData icon;
+  final String title;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.14),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(icon, color: color),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: _kTextMain,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoPanel extends StatelessWidget {
+  const _InfoPanel({
+    required this.icon,
+    required this.title,
+    required this.lines,
+    this.iconColor = _kMainBlue,
+    this.backgroundColor = Colors.white,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<String> lines;
+  final Color iconColor;
+  final Color backgroundColor;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: iconColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextMain,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          for (var i = 0; i < lines.length; i++)
+            Padding(
+              padding: EdgeInsets.only(bottom: i == lines.length - 1 ? 0 : 8),
+              child: Text(
+                lines[i],
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: _kTextMain,
+                ),
+              ),
+            ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: onAction,
+                style: TextButton.styleFrom(
+                  foregroundColor: iconColor,
+                ),
+                child: Text(actionLabel!),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.leading,
+    required this.title,
+    this.subtitle,
+    this.trailing,
+    this.onTap,
+  });
+
+  final Widget leading;
+  final Widget title;
+  final Widget? subtitle;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(24),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x11000000),
+              blurRadius: 12,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            leading,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  title,
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 6),
+                    subtitle!,
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: trailing!,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RoundIcon extends StatelessWidget {
+  const _RoundIcon({
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(icon, color: foregroundColor),
+    );
+  }
+}
+
+class _TalkTrailing extends StatelessWidget {
+  const _TalkTrailing({
+    required this.timeLabel,
+    this.unreadCount,
+  });
+
+  final String timeLabel;
+  final int? unreadCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          timeLabel,
+          style: const TextStyle(
+            fontSize: 11,
+            color: _kTextSub,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        if (unreadCount != null && unreadCount! > 0) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: _kMainBlue,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              unreadCount!.toString(),
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _TalkItem {
+  const _TalkItem({
+    required this.channel,
+    required this.snippet,
+    required this.timeLabel,
+    this.unreadCount,
+  });
+
+  final String channel;
+  final String snippet;
+  final String timeLabel;
+  final int? unreadCount;
+}
+
+enum WalletActivityType { deposit, withdrawal }
+
+class _WalletItem {
+  const _WalletItem({
+    required this.title,
+    required this.counterparty,
+    required this.amount,
+    required this.timeLabel,
+    required this.type,
+  });
+
+  final String title;
+  final String counterparty;
+  final double amount;
+  final String timeLabel;
+  final WalletActivityType type;
+}
+
+class _SettingsItem {
+  const _SettingsItem({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+}
+
+class _BankAction {
+  const _BankAction({
+    required this.icon,
+    required this.title,
+    required this.description,
+  });
+
+  final IconData icon;
+  final String title;
+  final String description;
+}
+
+class _DashboardTabBar extends StatelessWidget {
+  const _DashboardTabBar({
+    required this.activeTab,
+    required this.onSelected,
+  });
+
+  final _CommunityDashboardTab activeTab;
+  final ValueChanged<_CommunityDashboardTab> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      bottom: false,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            for (final tab in _CommunityDashboardTab.values)
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: _DashboardTabButton(
+                  tab: tab,
+                  isActive: activeTab == tab,
+                  onTap: () => onSelected(tab),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardTabButton extends StatelessWidget {
+  const _DashboardTabButton({
+    required this.tab,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  final _CommunityDashboardTab tab;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        decoration: BoxDecoration(
+          color: isActive ? _kMainBlue : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isActive ? _kMainBlue : const Color(0xFFE2E8F0),
+          ),
+          boxShadow: isActive
+              ? const [
+                  BoxShadow(
+                    color: Color(0x22000000),
+                    blurRadius: 14,
+                    offset: Offset(0, 6),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              tab.icon,
+              size: 18,
+              color: isActive ? Colors.white : _kTextSub,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              tab.label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
+                color: isActive ? Colors.white : _kTextMain,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PinnedTabHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _PinnedTabHeaderDelegate({
+    required this.activeTab,
+    required this.onSelected,
+  });
+
+  final _CommunityDashboardTab activeTab;
+  final ValueChanged<_CommunityDashboardTab> onSelected;
+
+  @override
+  double get minExtent => 68;
+
+  @override
+  double get maxExtent => 68;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        boxShadow: overlapsContent
+            ? const [
+                BoxShadow(
+                  color: Color(0x1A000000),
+                  blurRadius: 12,
+                  offset: Offset(0, 6),
+                ),
+              ]
+            : const [],
+      ),
+      child: _DashboardTabBar(
+        activeTab: activeTab,
+        onSelected: onSelected,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _PinnedTabHeaderDelegate oldDelegate) {
+    return oldDelegate.activeTab != activeTab;
+  }
+}
+
 
 class _OverviewCards extends StatelessWidget {
   const _OverviewCards({
