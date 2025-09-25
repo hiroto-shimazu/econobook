@@ -826,7 +826,7 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                           if (!canManageBank) ...[
                             const SizedBox(height: 8),
                             const Text(
-                              '中央銀行の設定はウォレットから管理できます。必要な場合は変更をリクエストしてください。',
+                              '中央銀行の設定はコミュニティから管理できます。必要な場合は変更をリクエストしてください。',
                               style:
                                   TextStyle(fontSize: 12, color: Colors.black54),
                             ),
@@ -1189,7 +1189,7 @@ class _QuickActions extends StatelessWidget {
           _QuickActionButton(
             icon: Icons.account_balance,
             label:
-                canManageBank ? '中央銀行（ウォレット）' : '中央銀行を見る',
+                canManageBank ? '中央銀行（コミュニティ）' : '中央銀行を見る',
             onTap: onBankSettings!,
           ),
       ],
@@ -1244,7 +1244,7 @@ class _CentralBankLinkCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final actionLabel =
-        canManage ? '中央銀行を開く' : 'ウォレットで中央銀行を見る';
+        canManage ? '中央銀行を開く' : 'コミュニティで中央銀行を見る';
     final actionIcon = canManage ? Icons.account_balance : Icons.open_in_new;
 
     return Container(

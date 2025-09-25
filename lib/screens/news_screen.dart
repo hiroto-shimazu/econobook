@@ -82,7 +82,7 @@ class _NewsScreenState extends State<NewsScreen> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
-        title: const Text('ニュース',
+        title: const Text('トピックス',
             style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
       ),
       body: ListView(

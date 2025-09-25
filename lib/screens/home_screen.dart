@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'account_screen.dart';
 import 'community_screen.dart';
-import 'wallet_screen.dart';
 import 'news_screen.dart';
 
 // ---- Brand tokens (SignIn と統一) ----
@@ -25,7 +24,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _index =
-      0; // 0: Home, 1: Communities, 2: Wallet, 3: News, 4: Account ← 既定をホームに
+      0; // 0: Home, 1: Communities, 2: Topics, 3: Account ← 既定をホームに
 
   // ---- Home mock state ----
   final TextEditingController _search = TextEditingController();
@@ -81,11 +80,23 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _homeMock(context), // 0: Home (kept here)
           CommunitiesScreen(user: widget.user), // 1: Communities
-          WalletScreen(user: widget.user), // 2: Wallet
-          NewsScreen(), // 3: News
-          AccountScreen(user: widget.user), // 4: Account
+          NewsScreen(), // 2: Topics
+          AccountScreen(user: widget.user), // 3: Account
         ],
       ),
+      floatingActionButton: SizedBox(
+        width: 72,
+        height: 72,
+        child: FloatingActionButton(
+          onPressed: () {},
+          backgroundColor: kBrandBlue,
+          foregroundColor: Colors.white,
+          elevation: 6,
+          shape: const CircleBorder(),
+          child: const Icon(Icons.add, size: 32),
+        ),
+      ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _index,
@@ -104,9 +115,8 @@ class _HomeScreenState extends State<HomeScreen> {
   List<BottomNavigationBarItem> _navItems() => [
         _navItem(Icons.home, 'ホーム', _index == 0),
         _navItem(Icons.groups, 'コミュニティ', _index == 1),
-        _navItem(Icons.account_balance_wallet, 'ウォレット', _index == 2),
-        _navItem(Icons.campaign, 'ニュース', _index == 3),
-        _navItem(Icons.account_circle, 'アカウント', _index == 4),
+        _navItem(Icons.forum, 'トピックス', _index == 2),
+        _navItem(Icons.account_circle, 'アカウント', _index == 3),
       ];
 
   BottomNavigationBarItem _navItem(IconData icon, String label, bool selected) {

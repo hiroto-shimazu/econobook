@@ -93,7 +93,7 @@ class CommunityChatScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            tooltip: 'ウォレットで中央銀行を開く',
+            tooltip: 'コミュニティで中央銀行を開く',
             icon: const Icon(Icons.account_balance, color: Colors.black87),
             onPressed: () {
               CentralBankScreen.open(

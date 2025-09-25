@@ -180,7 +180,7 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
                   const Divider(height: 1),
                   _settingsSwitchTile(
-                    title: 'ニュース・アップデート',
+                    title: 'トピックス・アップデート',
                     value: newsNoti,
                     onChanged: (v) =>
                         _updateSetting('settings.notifications.news', v),
