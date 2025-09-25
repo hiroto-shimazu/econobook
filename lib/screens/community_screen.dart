@@ -59,7 +59,8 @@ class CommunitiesScreen extends StatefulWidget {
   State<CommunitiesScreen> createState() => _CommunitiesScreenState();
 }
 
-class _CommunitiesScreenState extends State<CommunitiesScreen> {
+class _CommunitiesScreenState extends State<CommunitiesScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _inviteCtrl = TextEditingController();
   final TextEditingController _searchCtrl = TextEditingController();
   final CommunityService _communityService = CommunityService();
@@ -69,10 +70,12 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   _TalkFilter? _selectedTalkFilter = _TalkFilter.unread;
   _TalkSort _selectedTalkSort = _TalkSort.unreadFirst;
   String _searchKeyword = '';
+  late final TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _talkThreadsQuery = FirebaseFirestore.instance
         .collectionGroup('threads')
         .where('participants', arrayContains: widget.user.uid);
@@ -90,6 +93,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     _inviteCtrl.dispose();
     _searchCtrl.removeListener(_handleSearchChanged);
     _searchCtrl.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
@@ -377,12 +381,16 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
 
   bool _matchesTalkFilter(_TalkFilter? filter, _TalkEntry entry) {
     if (filter == null) return true;
-    return switch (filter) {
-      _TalkFilter.unread => entry.unreadCount > 0,
-      _TalkFilter.mention => entry.hasMention,
-      _TalkFilter.active => true,
-      _TalkFilter.pinned => entry.isPinned,
-    };
+    switch (filter) {
+      case _TalkFilter.unread:
+        return entry.unreadCount > 0;
+      case _TalkFilter.mention:
+        return entry.hasMention;
+      case _TalkFilter.active:
+        return true;
+      case _TalkFilter.pinned:
+        return entry.isPinned;
+    }
   }
 
   void _applyTalkSort(List<_TalkEntry> entries) {
@@ -699,106 +707,104 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     final discoverQuery =
         FirebaseFirestore.instance.collection('communities').limit(10);
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        backgroundColor: kBgLight,
-        body: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'コミュニティ',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: kTextMain,
-                      ),
+    return Scaffold(
+      backgroundColor: kBgLight,
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'コミュニティ',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: kTextMain,
                     ),
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => _createCommunity(context),
-                        borderRadius: BorderRadius.circular(999),
-                        child: Ink(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Icon(Icons.add, color: kTextMain, size: 26),
+                  ),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => _createCommunity(context),
+                      borderRadius: BorderRadius.circular(999),
+                      child: Ink(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE2E8F0),
+                          borderRadius: BorderRadius.circular(999),
                         ),
+                        child: const Icon(Icons.add, color: kTextMain, size: 26),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-                child: TextField(
-                  controller: _searchCtrl,
-                  decoration: InputDecoration(
-                    hintText: 'コミュ名・メンバーで検索',
-                    prefixIcon: const Icon(Icons.search, color: kTextSub),
-                    filled: true,
-                    fillColor: kCardWhite,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: kBrandBlue, width: 2),
-                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              child: TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  hintText: 'コミュ名・メンバーで検索',
+                  prefixIcon: const Icon(Icons.search, color: kTextSub),
+                  filled: true,
+                  fillColor: kCardWhite,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: kBrandBlue, width: 2),
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: TabBar(
-                  labelColor: kBrandBlue,
-                  unselectedLabelColor: kTextSub,
-                  labelStyle: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                  unselectedLabelStyle: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                  indicatorColor: kBrandBlue,
-                  indicatorWeight: 3,
-                  indicatorSize: TabBarIndicatorSize.label,
-                  tabs: const [
-                    Tab(text: '一覧'),
-                    Tab(text: 'トーク'),
-                  ],
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: TabBar(
+                controller: _tabController,
+                labelColor: kBrandBlue,
+                unselectedLabelColor: kTextSub,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
                 ),
-              ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    _buildCommunityList(
-                        context, membershipsQuery, discoverQuery),
-                    _buildTalkTab(),
-                  ],
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
                 ),
+                indicatorColor: kBrandBlue,
+                indicatorWeight: 3,
+                indicatorSize: TabBarIndicatorSize.label,
+                tabs: const [
+                  Tab(text: '一覧'),
+                  Tab(text: 'トーク'),
+                ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 4),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildCommunityList(context, membershipsQuery, discoverQuery),
+                  _buildTalkTab(),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1453,9 +1459,23 @@ class _CommunityDetailSheet extends StatefulWidget {
   State<_CommunityDetailSheet> createState() => _CommunityDetailSheetState();
 }
 
-class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
+class _CommunityDetailSheetState extends State<_CommunityDetailSheet>
+    with SingleTickerProviderStateMixin {
   final CommunityService _communityService = CommunityService();
   bool _leaving = false;
+  late final TabController _detailTabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailTabController = TabController(length: 6, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _detailTabController.dispose();
+    super.dispose();
+  }
 
   Future<void> _togglePin(_TalkEntry entry, BuildContext context) async {
     try {
@@ -1601,12 +1621,12 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                       requesterUid: widget.user.uid,
                       message: message.isEmpty ? null : message,
                     );
-                    if (!context.mounted) return;
+                    if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('設定変更リクエストを送信しました')),
                     );
                   } catch (e) {
-                    if (!context.mounted) return;
+                    if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('リクエスト送信に失敗しました: $e')),
                     );
@@ -1622,9 +1642,7 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                   color: kBgLight,
                   child: SafeArea(
                     top: false,
-                    child: DefaultTabController(
-                      length: 6,
-                      child: NestedScrollView(
+                    child: NestedScrollView(
                         headerSliverBuilder: (context, innerBoxIsScrolled) => [
                           SliverToBoxAdapter(
                             child: _CommunityDetailHeader(
@@ -1663,6 +1681,7 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                             delegate: _CommunityDetailTabHeaderDelegate(
                               title: name,
                               tabBar: TabBar(
+                                controller: _detailTabController,
                                 isScrollable: true,
                                 labelColor: kBrandBlue,
                                 unselectedLabelColor: kTextSub,
@@ -1691,8 +1710,10 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                         body: Container(
                           color: kBgLight,
                           child: TabBarView(
+                            controller: _detailTabController,
                             children: [
                               _buildSummaryTab(
+                                context,
                                 description: description,
                                 balance: balance,
                                 currency: currency,
@@ -1747,7 +1768,8 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
     );
   }
 
-  Widget _buildSummaryTab({
+  Widget _buildSummaryTab(
+    BuildContext context, {
     required String description,
     required num balance,
     required CommunityCurrency currency,
@@ -1931,11 +1953,14 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
   }
 
   String _roleLabel(String role) {
-    return switch (role) {
-      'owner' => 'リーダー',
-      'admin' => 'モデレーター',
-      _ => 'メンバー',
-    };
+    switch (role) {
+      case 'owner':
+        return 'リーダー';
+      case 'admin':
+        return 'モデレーター';
+      default:
+        return 'メンバー';
+    }
   }
 
   Widget _summaryChip(String label,
@@ -3116,12 +3141,16 @@ class _CommunityTalkTabState extends State<_CommunityTalkTab> {
   bool _matchesFilter(_TalkEntry entry) {
     final filter = _selectedFilter;
     if (filter == null) return true;
-    return switch (filter) {
-      _TalkFilter.unread => entry.unreadCount > 0,
-      _TalkFilter.mention => entry.hasMention,
-      _TalkFilter.active => true,
-      _TalkFilter.pinned => entry.isPinned,
-    };
+    switch (filter) {
+      case _TalkFilter.unread:
+        return entry.unreadCount > 0;
+      case _TalkFilter.mention:
+        return entry.hasMention;
+      case _TalkFilter.active:
+        return true;
+      case _TalkFilter.pinned:
+        return entry.isPinned;
+    }
   }
 
   void _applySort(List<_TalkEntry> entries) {
@@ -4260,13 +4289,18 @@ class _MemberTileState extends State<_MemberTile> {
         widget.canEdit && role != 'owner' && uid != widget.currentUserUid;
 
     String roleLabel(String value) {
-      return switch (value) {
-        'owner' => 'オーナー',
-        'admin' => '管理者',
-        'mediator' => '仲介',
-        'pending' => '承認待ち',
-        _ => 'メンバー',
-      };
+      switch (value) {
+        case 'owner':
+          return 'オーナー';
+        case 'admin':
+          return '管理者';
+        case 'mediator':
+          return '仲介';
+        case 'pending':
+          return '承認待ち';
+        default:
+          return 'メンバー';
+      }
     }
 
     return ListTile(
