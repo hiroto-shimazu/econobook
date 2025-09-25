@@ -15,12 +15,17 @@ import 'community_leader_settings_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
 
 // ---- Brand tokens (アプリ全体と統一) ----
-const Color kBrandBlue = Color(0xFF0D80F2);
-const Color kLightGray = Color(0xFFF0F2F5);
+const Color kBrandBlue = Color(0xFF2563EB);
+const Color kLightGray = Color(0xFFF1F5F9);
+const Color kBgLight = Color(0xFFF8FAFC);
+const Color kCardWhite = Color(0xFFFFFFFF);
+const Color kTextMain = Color(0xFF0F172A);
+const Color kTextSub = Color(0xFF64748B);
+const Color kAccentOrange = Color(0xFFF59E0B);
 const LinearGradient kBrandGrad = LinearGradient(
-  begin: Alignment.centerLeft,
-  end: Alignment.centerRight,
-  colors: [Color(0xFFE53935), Color(0xFF0D80F2)], // 赤→青
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+  colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
 );
 
 DateTime? _readTimestamp(dynamic value) {
@@ -55,13 +60,183 @@ class CommunitiesScreen extends StatefulWidget {
 
 class _CommunitiesScreenState extends State<CommunitiesScreen> {
   final TextEditingController _inviteCtrl = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
   final CommunityService _communityService = CommunityService();
   Set<String> _myCommunityIds = <String>{};
 
   @override
   void dispose() {
     _inviteCtrl.dispose();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  Widget _buildCommunityList(
+    BuildContext context,
+    Query<Map<String, dynamic>> membershipsQuery,
+    Query<Map<String, dynamic>> discoverQuery,
+  ) {
+    return ListView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 120),
+      children: [
+        _sectionHeader('参加中のコミュニティ'),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: membershipsQuery.snapshots(),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return _loadingState();
+            }
+            if (snap.hasError) {
+              return _errorNotice('読み込みエラー: ${snap.error}');
+            }
+            final docs = snap.data?.docs ?? [];
+            final sortedDocs = docs.toList()
+              ..sort((a, b) => _compareJoinedAtDesc(a.data(), b.data()));
+            final newSet = <String>{
+              for (final doc in sortedDocs)
+                if (doc.data()['cid'] is String) doc.data()['cid'] as String
+            };
+            if (!setEquals(_myCommunityIds, newSet)) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  setState(() => _myCommunityIds = newSet);
+                }
+              });
+            }
+            if (sortedDocs.isEmpty) {
+              return _emptyMyCommunities(context);
+            }
+            return Column(
+              children: [
+                for (final m in sortedDocs) ...[
+                  FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                    future: FirebaseFirestore.instance
+                        .doc('communities/${m['cid']}')
+                        .get(),
+                    builder: (context, cSnap) {
+                      final membershipData = m.data();
+                      final cid =
+                          (membershipData['cid'] as String?) ?? 'unknown';
+                      final community =
+                          cSnap.data?.data() ?? <String, dynamic>{};
+                      final name = (community['name'] as String?) ?? cid;
+                      final members =
+                          (community['membersCount'] as num?)?.toInt();
+                      final cover = (community['coverUrl'] as String?);
+                      final role =
+                          (membershipData['role'] as String?) ?? 'member';
+                      final currency =
+                          (community['currency'] as Map<String, dynamic>?) ??
+                              const <String, dynamic>{};
+                      final currencyName =
+                          (currency['name'] as String?) ?? '独自通貨';
+                      return _communityCard(
+                        title: name,
+                        subtitle: members == null
+                            ? 'メンバー数 —'
+                            : 'メンバー ${members}人',
+                        coverUrl: cover,
+                        role: role,
+                        currencyName: currencyName,
+                        onTap: () => CommunityHomeScreen.open(
+                          context,
+                          communityId: cid,
+                          communityPreview: community,
+                          membershipData: membershipData,
+                          user: widget.user,
+                        ),
+                        onInfo: () => _openCommunitySheet(
+                          context,
+                          cid,
+                          membershipData,
+                          widget.user,
+                          community,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ]
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 24),
+        _sectionHeader('招待コードで参加'),
+        const SizedBox(height: 8),
+        _inviteInputRow(context),
+        const SizedBox(height: 24),
+        Center(
+          child: Text(
+            'または',
+            style: TextStyle(color: kTextSub.withOpacity(0.8)),
+          ),
+        ),
+        const SizedBox(height: 24),
+        _sectionHeader('公開コミュニティを探す'),
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: discoverQuery.snapshots(),
+          builder: (context, snap) {
+            if (snap.connectionState == ConnectionState.waiting) {
+              return _loadingState();
+            }
+            if (snap.hasError) {
+              return _errorNotice('読み込みエラー: ${snap.error}');
+            }
+            final docs = snap.data?.docs ?? [];
+            final filtered = [
+              for (final d in docs)
+                if (!_myCommunityIds.contains(d.id)) d
+            ];
+            if (filtered.isEmpty) {
+              return _emptyDiscoverCard();
+            }
+            return Column(
+              children: [
+                for (final d in filtered) ...[
+                  _discoverCard(d.data(), onRequest: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('参加申請は準備中です')),
+                    );
+                  }),
+                  const SizedBox(height: 12),
+                ]
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTalkComingSoon() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.chat_bubble_outline, size: 48, color: kTextSub),
+            SizedBox(height: 16),
+            Text(
+              'トークは近日公開予定です',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: kTextMain,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'コミュニティ内のやりとりがよりスムーズに。\n近日アップデートをお待ちください。',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: kTextSub),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -74,208 +249,107 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     final discoverQuery =
         FirebaseFirestore.instance.collection('communities').limit(10);
 
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        title: const Text('コミュニティ',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        actions: [
-          IconButton(
-            tooltip: 'コミュニティを作成',
-            onPressed: () => _createCommunity(context),
-            icon: ShaderMask(
-              shaderCallback: (Rect b) => kBrandGrad.createShader(b),
-              blendMode: BlendMode.srcIn,
-              child: const Icon(Icons.add, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
-        children: [
-          // ===== 自分のコミュニティ =====
-          _sectionHeader('自分のコミュニティ'),
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: membershipsQuery.snapshots(),
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snap.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('読み込みエラー: ${snap.error}'),
-                );
-              }
-              final docs = snap.data?.docs ?? [];
-              final sortedDocs = docs.toList()
-                ..sort((a, b) => _compareJoinedAtDesc(a.data(), b.data()));
-              final newSet = <String>{
-                for (final doc in sortedDocs)
-                  if (doc.data()['cid'] is String) doc.data()['cid'] as String
-              };
-              if (!setEquals(_myCommunityIds, newSet)) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    setState(() => _myCommunityIds = newSet);
-                  }
-                });
-              }
-              if (sortedDocs.isEmpty) {
-                return _emptyMyCommunities(context);
-              }
-              return Column(
-                children: [
-                  for (final m in sortedDocs) ...[
-                    FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      future: FirebaseFirestore.instance
-                          .doc('communities/${m['cid']}')
-                          .get(),
-                      builder: (context, cSnap) {
-                        final membershipData = m.data();
-                        final cid =
-                            (membershipData['cid'] as String?) ?? 'unknown';
-                        final community =
-                            cSnap.data?.data() ?? <String, dynamic>{};
-                        final name = (community['name'] as String?) ?? cid;
-                        final members =
-                            (community['membersCount'] as num?)?.toInt();
-                        final cover = (community['coverUrl'] as String?);
-                        return _communityCard(
-                          title: name,
-                          subtitle:
-                              members == null ? 'メンバー数 —' : 'メンバー ${members}人',
-                          coverUrl: cover,
-                          onTap: () => CommunityHomeScreen.open(
-                            context,
-                            communityId: cid,
-                            communityPreview: community,
-                            membershipData: membershipData,
-                            user: widget.user,
-                          ),
-                          onInfo: () => _openCommunitySheet(
-                            context,
-                            cid,
-                            membershipData,
-                            widget.user,
-                            community,
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                  ]
-                ],
-              );
-            },
-          ),
-
-          const SizedBox(height: 16),
-          const Divider(height: 1),
-          const SizedBox(height: 16),
-
-          // ===== 参加（招待コード） =====
-          _sectionHeader('コミュニティに参加する'),
-          Row(
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: kBgLight,
+        body: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'コミュニティ',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: kTextMain,
+                      ),
+                    ),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => _createCommunity(context),
+                        borderRadius: BorderRadius.circular(999),
+                        child: Ink(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Icon(Icons.add, color: kTextMain, size: 26),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
                 child: TextField(
-                  controller: _inviteCtrl,
+                  controller: _searchCtrl,
                   decoration: InputDecoration(
-                    hintText: '招待コード / コミュニティID を入力',
+                    hintText: 'コミュ名・メンバーで検索',
+                    prefixIcon: const Icon(Icons.search, color: kTextSub),
                     filled: true,
-                    fillColor: kLightGray,
-                    contentPadding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 16),
+                    fillColor: kCardWhite,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                     border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
                     ),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(16),
                       borderSide: const BorderSide(color: kBrandBlue, width: 2),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 48,
-                child: DecoratedBox(
-                  decoration: const BoxDecoration(
-                      gradient: kBrandGrad,
-                      borderRadius: BorderRadius.all(Radius.circular(12))),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        foregroundColor: Colors.white,
-                        shadowColor: Colors.transparent,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                      ),
-                      onPressed: () async => _joinCommunityWithCode(
-                          context, _inviteCtrl.text.trim()),
-                      child: const Text('参加'),
-                    ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: TabBar(
+                  labelColor: kBrandBlue,
+                  unselectedLabelColor: kTextSub,
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
                   ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                  indicatorColor: kBrandBlue,
+                  indicatorWeight: 3,
+                  indicatorSize: TabBarIndicatorSize.label,
+                  tabs: const [
+                    Tab(text: '一覧'),
+                    Tab(text: 'トーク'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _buildCommunityList(
+                        context, membershipsQuery, discoverQuery),
+                    _buildTalkComingSoon(),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          const Center(
-              child: Text('または', style: TextStyle(color: Colors.grey))),
-
-          const SizedBox(height: 12),
-          _sectionHeader('探して参加申請'),
-          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: discoverQuery.snapshots(),
-            builder: (context, snap) {
-              if (snap.connectionState == ConnectionState.waiting) {
-                return const Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              if (snap.hasError) {
-                return Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text('読み込みエラー: ${snap.error}'),
-                );
-              }
-              final docs = snap.data?.docs ?? [];
-              final filtered = [
-                for (final d in docs)
-                  if (!_myCommunityIds.contains(d.id)) d
-              ];
-              if (filtered.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('公開中のコミュニティはまだありません'),
-                );
-              }
-              return Column(
-                children: [
-                  for (final d in filtered) ...[
-                    _discoverCard(d.data(), onRequest: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('参加申請は準備中です')),
-                      );
-                    }),
-                    const SizedBox(height: 8),
-                  ]
-                ],
-              );
-            },
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -283,12 +357,35 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   // ===== UI Parts =====
   Widget _sectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-      child: Text(title,
-          style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Colors.black87)),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: kTextMain,
+        ),
+      ),
+    );
+  }
+
+  Widget _tagChip(String label,
+      {Color backgroundColor = const Color(0xFFE0E7FF),
+      Color textColor = kBrandBlue}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 
@@ -296,6 +393,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     required String title,
     required String subtitle,
     String? coverUrl,
+    String? role,
+    String? currencyName,
     VoidCallback? onTap,
     VoidCallback? onInfo,
   }) {
@@ -315,30 +414,286 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       leading = _coverFallback(title);
     }
 
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: kCardWhite,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                leading,
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: kTextMain,
+                              ),
+                            ),
+                          ),
+                          if (onInfo != null)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: InkResponse(
+                                onTap: onInfo,
+                                radius: 20,
+                                child: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: const BoxDecoration(
+                                    color: Color(0xFFE2E8F0),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.info_outline,
+                                    size: 18,
+                                    color: kBrandBlue,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.chevron_right, color: kTextSub),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          if (currencyName != null && currencyName.isNotEmpty)
+                            _tagChip(currencyName),
+                          if (role != null)
+                            _RoleChip(role: role),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.people_alt_rounded,
+                                size: 16, color: kTextSub),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                subtitle,
+                                style: const TextStyle(
+                                  color: kTextSub,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _inviteInputRow(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0x22000000)),
-        borderRadius: BorderRadius.circular(12),
+        color: kCardWhite,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
-      child: ListTile(
-        leading: leading,
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-        subtitle: Text(subtitle, style: const TextStyle(color: Colors.black54)),
-        trailing: onInfo == null
-            ? const Icon(Icons.chevron_right)
-            : Wrap(
-                spacing: 4,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.info_outline, size: 20),
-                    tooltip: 'コミュニティ情報',
-                    onPressed: onInfo,
-                  ),
-                  const Icon(Icons.chevron_right),
-                ],
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _inviteCtrl,
+              decoration: InputDecoration(
+                hintText: '招待コード / コミュニティID を入力',
+                filled: true,
+                fillColor: kLightGray,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 14),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: kBrandBlue, width: 2),
+                ),
               ),
-        onTap: onTap,
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            height: 48,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: kBrandBlue,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              onPressed: () => _joinCommunityWithCode(
+                  context, _inviteCtrl.text.trim()),
+              child: const Text('参加'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _loadingState() {
+    return Column(
+      children: [
+        for (int i = 0; i < 2; i++) ...[
+          Container(
+            margin: EdgeInsets.only(bottom: i == 1 ? 0 : 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: kCardWhite,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    color: kLightGray,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: kLightGray,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        height: 12,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: kLightGray,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ]
+      ],
+    );
+  }
+
+  Widget _errorNotice(String message) {
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: kCardWhite,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.red.withOpacity(0.2)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.redAccent),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(color: kTextSub),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _emptyDiscoverCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: kCardWhite,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          Text(
+            '公開中のコミュニティはまだありません',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: kTextMain,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'まずは身近なメンバーとコミュニティを作成してみましょう。',
+            style: TextStyle(color: kTextSub),
+          ),
+        ],
       ),
     );
   }
@@ -348,59 +703,81 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     final title = (c['name'] as String?) ?? (c['id'] as String? ?? 'Community');
     final members = (c['membersCount'] as num?)?.toInt();
     final cover = (c['coverUrl'] as String?);
+    final description = (c['description'] as String?)?.trim();
 
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0x22000000)),
-        borderRadius: BorderRadius.circular(12),
+        color: kCardWhite,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Row(
-          children: [
-            // cover
-            if (cover != null && cover.isNotEmpty)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.network(
-                  cover,
-                  width: 56,
-                  height: 56,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _coverFallback(title),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (cover != null && cover.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(
+                cover,
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => _coverFallback(title),
+              ),
+            )
+          else
+            _coverFallback(title),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: kTextMain,
+                  ),
                 ),
-              )
-            else
-              _coverFallback(title),
-            const SizedBox(width: 12),
-            // texts
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                Text(
+                  members == null ? 'メンバー数 —' : 'メンバー ${members}人',
+                  style: const TextStyle(color: kTextSub, fontSize: 13),
+                ),
+                if (description != null && description.isNotEmpty) ...[
+                  const SizedBox(height: 6),
                   Text(
-                    members == null ? 'メンバー数 —' : 'メンバー ${members}人',
-                    style: const TextStyle(color: Colors.black54),
+                    description,
+                    style: const TextStyle(color: kTextSub, fontSize: 12),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton(
+            onPressed: onRequest,
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: kBrandBlue, width: 1.5),
+              foregroundColor: kBrandBlue,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
               ),
             ),
-            const SizedBox(width: 8),
-            // request button
-            OutlinedButton(
-              onPressed: onRequest,
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: kBrandBlue),
-                foregroundColor: kBrandBlue,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-              ),
-              child: const Text('申請'),
-            ),
-          ],
-        ),
+            child: const Text('申請'),
+          ),
+        ],
       ),
     );
   }
@@ -410,70 +787,98 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       width: 56,
       height: 56,
       decoration: BoxDecoration(
-          color: kLightGray, borderRadius: BorderRadius.circular(8)),
+        color: const Color(0xFFE2E8F0),
+        borderRadius: BorderRadius.circular(16),
+      ),
       alignment: Alignment.center,
       child: Text(
         title.isNotEmpty ? title.characters.first.toUpperCase() : '?',
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+          color: kTextMain,
+        ),
       ),
     );
   }
 
   Widget _emptyMyCommunities(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0x22000000)),
-        borderRadius: BorderRadius.circular(12),
+        color: kCardWhite,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('まだコミュニティがありません',
-              style: TextStyle(fontWeight: FontWeight.w600)),
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: kLightGray,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(Icons.groups_outlined,
+                size: 36, color: kTextSub),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'まだコミュニティがありません',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: kTextMain,
+            ),
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              DecoratedBox(
-                decoration: const BoxDecoration(
-                    gradient: kBrandGrad,
-                    borderRadius: BorderRadius.all(Radius.circular(999))),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.white,
-                      shadowColor: Colors.transparent,
-                    ),
-                    onPressed: () => _joinCommunityDialog(context),
-                    icon: const Icon(Icons.group_add),
-                    label: const Text('参加する'),
-                  ),
+          const Text(
+            '招待コードで参加するか、新しくコミュニティを作成しましょう。',
+            style: TextStyle(color: kTextSub),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: kBrandBlue,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
-              const SizedBox(width: 12),
-              DecoratedBox(
-                decoration: const BoxDecoration(
-                    gradient: kBrandGrad,
-                    borderRadius: BorderRadius.all(Radius.circular(999))),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: Colors.transparent,
-                      foregroundColor: Colors.white,
-                      shadowColor: Colors.transparent,
-                    ),
-                    onPressed: () => _createCommunity(context),
-                    icon: const Icon(Icons.create_new_folder_outlined),
-                    label: const Text('作成する'),
-                  ),
+              onPressed: () => _joinCommunityDialog(context),
+              child: const Text('招待コードを入力'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFE2E8F0),
+                foregroundColor: kTextMain,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
               ),
-            ],
-          )
+              onPressed: () => _createCommunity(context),
+              child: const Text('新しいコミュニティを作成'),
+            ),
+          ),
         ],
       ),
     );
@@ -1029,9 +1434,27 @@ class _RoleChip extends StatelessWidget {
       'pending' => '承認待ち',
       _ => 'メンバー',
     };
-    return Chip(
-      label: Text(label),
-      backgroundColor: kLightGray,
+    final (Color bg, Color textColor) = switch (role) {
+      'owner' => (const Color(0xFFE2E8F0), kTextMain),
+      'admin' => (const Color(0xFFE2E8F0), kTextSub),
+      'mediator' => (const Color(0xFFEDE9FE), Color(0xFF6D28D9)),
+      'pending' => (kAccentOrange.withOpacity(0.15), kAccentOrange),
+      _ => (const Color(0xFFE2E8F0), kTextSub),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
