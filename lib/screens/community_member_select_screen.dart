@@ -100,8 +100,9 @@ class CommunityMemberSelectScreen extends StatefulWidget {
     required String currentUserUid,
     String? communityName,
     String? currentUserRole,
-  }) {
-    return Navigator.of(context).push(
+  }) async {
+    if (!context.mounted) return;
+    await Navigator.of(context, rootNavigator: true).push(
       MaterialPageRoute(
         builder: (_) => CommunityMemberSelectScreen(
           communityId: communityId,
@@ -1989,22 +1990,26 @@ class _PinnedTabHeaderDelegate extends SliverPersistentHeaderDelegate {
     double shrinkOffset,
     bool overlapsContent,
   ) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.96),
-        boxShadow: overlapsContent
-            ? const [
-                BoxShadow(
-                  color: Color(0x1A000000),
-                  blurRadius: 12,
-                  offset: Offset(0, 6),
-                ),
-              ]
-            : const [],
-      ),
-      child: _DashboardTabBar(
-        activeTab: activeTab,
-        onSelected: onSelected,
+    return SizedBox(
+      height: maxExtent,
+      width: double.infinity,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.96),
+          boxShadow: overlapsContent
+              ? const [
+                  BoxShadow(
+                    color: Color(0x1A000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 6),
+                  ),
+                ]
+              : const [],
+        ),
+        child: _DashboardTabBar(
+          activeTab: activeTab,
+          onSelected: onSelected,
+        ),
       ),
     );
   }
