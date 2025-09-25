@@ -9,7 +9,7 @@ import '../models/community.dart';
 import '../services/community_service.dart';
 import '../services/firestore_refs.dart';
 import 'central_bank_screen.dart';
-import 'community_home_screen.dart';
+import 'community_member_select_screen.dart';
 import 'community_create_screen.dart';
 import 'community_leader_settings_screen.dart';
 import 'member_chat_screen.dart';
@@ -169,12 +169,12 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                         coverUrl: cover,
                         role: role,
                         currencyName: currencyName,
-                        onTap: () => CommunityHomeScreen.open(
+                        onTap: () => CommunityMemberSelectScreen.open(
                           context,
                           communityId: cid,
-                          communityPreview: community,
-                          membershipData: membershipData,
-                          user: widget.user,
+                          currentUserUid: widget.user.uid,
+                          communityName: name,
+                          currentUserRole: role,
                         ),
                         onInfo: () => _openCommunitySheet(
                           context,
