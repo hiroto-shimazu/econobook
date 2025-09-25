@@ -40,41 +40,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white, // ← 白ベースに統一
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0, // ← SignInと同じフラット
-        titleSpacing: 16,
-        title: Image.asset(
-          'assets/logo/econobook_grad_red_to_blue_lr_transparent.png',
-          height: 100, // ← ロゴ拡大
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => Text(
-            'EconoBook',
-            style: TextStyle(
-                fontSize: 26, fontWeight: FontWeight.w800, color: kBrandBlue),
-          ),
-        ),
-        actions: [
-          IconButton(
-            onPressed: () {},
-            tooltip: 'Add',
-            icon: ShaderMask(
-              shaderCallback: (Rect b) => kBrandGrad.createShader(b),
-              blendMode: BlendMode.srcIn,
-              child: const Icon(Icons.add, color: Colors.white),
-            ),
-          ),
-          IconButton(
-            onPressed: () {},
-            tooltip: 'Settings',
-            icon: ShaderMask(
-              shaderCallback: (Rect b) => kBrandGrad.createShader(b),
-              blendMode: BlendMode.srcIn,
-              child: const Icon(Icons.settings, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
+      appBar: _buildAppBar(),
       body: IndexedStack(
         index: _index,
         children: [
@@ -108,6 +74,45 @@ class _HomeScreenState extends State<HomeScreen> {
         unselectedItemColor: Colors.grey[600],
         items: _navItems(), // ← グラデ選択アイコン & ラベル統一
       ),
+    );
+  }
+
+  PreferredSizeWidget? _buildAppBar() {
+    if (_index != 0) return null;
+    return AppBar(
+      backgroundColor: Colors.white,
+      elevation: 0, // ← SignInと同じフラット
+      titleSpacing: 16,
+      title: Image.asset(
+        'assets/logo/econobook_grad_red_to_blue_lr_transparent.png',
+        height: 100, // ← ロゴ拡大
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => Text(
+          'EconoBook',
+          style: TextStyle(
+              fontSize: 26, fontWeight: FontWeight.w800, color: kBrandBlue),
+        ),
+      ),
+      actions: [
+        IconButton(
+          onPressed: () {},
+          tooltip: 'Add',
+          icon: ShaderMask(
+            shaderCallback: (Rect b) => kBrandGrad.createShader(b),
+            blendMode: BlendMode.srcIn,
+            child: const Icon(Icons.add, color: Colors.white),
+          ),
+        ),
+        IconButton(
+          onPressed: () {},
+          tooltip: 'Settings',
+          icon: ShaderMask(
+            shaderCallback: (Rect b) => kBrandGrad.createShader(b),
+            blendMode: BlendMode.srcIn,
+            child: const Icon(Icons.settings, color: Colors.white),
+          ),
+        ),
+      ],
     );
   }
 
