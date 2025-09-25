@@ -1573,189 +1573,121 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                 }
 
                 return Material(
-                  color: Colors.white,
+                  color: kBgLight,
                   child: SafeArea(
                     top: false,
-                    child: SingleChildScrollView(
-                      controller: controller,
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Center(
-                            child: Container(
-                              width: 44,
-                              height: 4,
-                              margin: const EdgeInsets.only(bottom: 12),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade300,
-                                borderRadius: BorderRadius.circular(999),
+                    child: DefaultTabController(
+                      length: 6,
+                      child: NestedScrollView(
+                        headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                          SliverToBoxAdapter(
+                            child: _CommunityDetailHeader(
+                              name: name,
+                              role: role,
+                              membersCount: membersCount,
+                              discoverable: discoverable,
+                              currencyName: currency.name.isEmpty
+                                  ? '独自通貨'
+                                  : currency.name,
+                              coverUrl: communityPreview?['coverUrl'] as String?,
+                              inviteCode:
+                                  inviteCode.isEmpty ? null : inviteCode,
+                              onInvite: () {
+                                if (inviteCode.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text('招待コードは準備中です')),
+                                  );
+                                  return;
+                                }
+                                Clipboard.setData(
+                                  ClipboardData(text: inviteCode),
+                                );
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                      content:
+                                          Text('招待コード「$inviteCode」をコピーしました')),
+                                );
+                              },
+                            ),
+                          ),
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: _CommunityDetailTabHeaderDelegate(
+                              title: name,
+                              tabBar: TabBar(
+                                isScrollable: true,
+                                labelColor: kBrandBlue,
+                                unselectedLabelColor: kTextSub,
+                                indicatorColor: kBrandBlue,
+                                indicatorWeight: 3,
+                                labelStyle: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 13,
+                                ),
+                                unselectedLabelStyle: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 12,
+                                ),
+                                tabs: const [
+                                  Tab(text: '概要'),
+                                  Tab(text: 'トーク'),
+                                  Tab(text: 'ウォレット'),
+                                  Tab(text: 'メンバー'),
+                                  Tab(text: 'コミュ設定'),
+                                  Tab(text: 'バンク'),
+                                ],
                               ),
                             ),
                           ),
-                          Text(name,
-                              style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.black)),
-                          const SizedBox(height: 4),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 4,
+                        ],
+                        body: Container(
+                          color: kBgLight,
+                          child: TabBarView(
                             children: [
-                              _RoleChip(role: role),
-                              if (membersCount != null)
-                                Chip(
-                                  label: Text('メンバー $membersCount人'),
-                                  backgroundColor: kLightGray,
-                                ),
-                              if (discoverable)
-                                const Chip(
-                                  label: Text('一般公開'),
-                                  backgroundColor: kLightGray,
-                                ),
+                              _buildSummaryTab(
+                                description: description,
+                                balance: balance,
+                                currency: currency,
+                                inviteCode: inviteCode,
+                                canManageBank: canManageBank,
+                                policy: policy,
+                                symbol: symbol,
+                                membersCount: membersCount,
+                                ownerUid: ownerUid,
+                                role: role,
+                                handleBankSettings: handleBankSettings,
+                              ),
+                              _CommunityTalkTab(
+                                communityId: widget.communityId,
+                                communityName: name,
+                                communityCoverUrl:
+                                    communityPreview?['coverUrl'] as String?,
+                                user: widget.user,
+                                onOpenThread: (entry) =>
+                                    _openThread(context, entry),
+                                onTogglePin: (entry) =>
+                                    _togglePin(entry, context),
+                              ),
+                              const _ComingSoonTab(
+                                  message: 'ウォレットコンテンツは準備中です'),
+                              _MembersTab(
+                                communityId: widget.communityId,
+                                service: _communityService,
+                                currentUserUid: widget.user.uid,
+                                currentUserRole: role,
+                              ),
+                              const _ComingSoonTab(
+                                  message: 'コミュ設定は順次アップデート予定です'),
+                              _BankTab(
+                                onOpen: handleBankSettings,
+                                canManage: canManageBank,
+                                currency: currency,
+                                policy: policy,
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 16),
-                          _BalanceSummaryCard(
-                            balance: balance,
-                            currency: currency,
-                            inviteCode:
-                                inviteCode.isEmpty ? null : inviteCode,
-                          ),
-                          if (description.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            Text(description,
-                                style:
-                                    const TextStyle(color: Colors.black87)),
-                          ],
-                          const SizedBox(height: 24),
-                          const _SectionHeader(title: 'ショートカット'),
-                          const SizedBox(height: 8),
-                          _QuickActions(
-                            onSend: () {
-                              Navigator.of(context).pop();
-                              TransactionFlowScreen.open(
-                                context,
-                                user: widget.user,
-                                communityId: widget.communityId,
-                                initialKind: TransactionKind.transfer,
-                              );
-                            },
-                            onRequest: () {
-                              Navigator.of(context).pop();
-                              TransactionFlowScreen.open(
-                                context,
-                                user: widget.user,
-                                communityId: widget.communityId,
-                                initialKind: TransactionKind.request,
-                              );
-                            },
-                            onSplit: () {
-                              Navigator.of(context).pop();
-                              TransactionFlowScreen.open(
-                                context,
-                                user: widget.user,
-                                communityId: widget.communityId,
-                                initialKind: TransactionKind.split,
-                              );
-                            },
-                            onTask: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('タスク募集は準備中です')),
-                              );
-                            },
-                            onBankSettings: handleBankSettings,
-                            canManageBank: canManageBank,
-                          ),
-                          const SizedBox(height: 24),
-                          const _SectionHeader(title: '通貨・中央銀行設定'),
-                          const SizedBox(height: 8),
-                          _CentralBankLinkCard(
-                            currency: currency,
-                            requiresApproval: policy.requiresApproval,
-                            allowMinting: currency.allowMinting,
-                            onOpen: handleBankSettings,
-                            canManage: canManageBank,
-                          ),
-                          if (!canManageBank) ...[
-                            const SizedBox(height: 8),
-                            const Text(
-                              '中央銀行の設定はコミュニティから管理できます。必要な場合は変更をリクエストしてください。',
-                              style:
-                                  TextStyle(fontSize: 12, color: Colors.black54),
-                            ),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton.icon(
-                                onPressed: handleBankSettings,
-                                icon: const Icon(Icons.outgoing_mail, size: 18),
-                                label: const Text('変更をリクエスト'),
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 24),
-                          if (role == 'owner' || role == 'admin') ...[
-                            const _SectionHeader(title: '参加申請'),
-                            const SizedBox(height: 8),
-                            _PendingJoinRequestsList(
-                              communityId: widget.communityId,
-                              service: _communityService,
-                              approverUid: widget.user.uid,
-                            ),
-                            const SizedBox(height: 24),
-                          ],
-                          const _SectionHeader(title: '最近のタイムライン'),
-                          const SizedBox(height: 8),
-                          _CommunityActivityList(
-                            communityId: widget.communityId,
-                            symbol: symbol,
-                            precision: currency.precision,
-                            currentUid: widget.user.uid,
-                          ),
-                          const SizedBox(height: 24),
-                          const _SectionHeader(title: 'タスク'),
-                          const SizedBox(height: 8),
-                          _CommunityTasksList(
-                            communityId: widget.communityId,
-                          ),
-                          const SizedBox(height: 24),
-                          const _SectionHeader(title: 'メンバー'),
-                          const SizedBox(height: 8),
-                          _CommunityMembersList(
-                            communityId: widget.communityId,
-                            service: _communityService,
-                            currentUserUid: widget.user.uid,
-                            currentUserRole: role,
-                          ),
-                          if (role == 'owner') ...[
-                            const SizedBox(height: 24),
-                            const _SectionHeader(title: 'リーダー設定'),
-                            const SizedBox(height: 8),
-                            OutlinedButton.icon(
-                              onPressed: () => _openLeaderSettings(ownerUid),
-                              icon: const Icon(Icons.manage_accounts),
-                              label: const Text('リーダーを変更'),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'リーダーは常に1人必要です。脱退する場合は別のメンバーにリーダー権限を渡してください。',
-                              style: TextStyle(
-                                  fontSize: 12, color: Colors.black54),
-                            ),
-                          ],
-                          const SizedBox(height: 24),
-                          _LeaveCommunitySection(
-                            isLeader: role == 'owner',
-                            membersCount: membersCount ?? 0,
-                            onLeave: () => _confirmLeave(
-                              isLeader: role == 'owner',
-                              membersCount: membersCount ?? 0,
-                            ),
-                            leaving: _leaving,
-                          ),
-                          const SizedBox(height: 32),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -1765,6 +1697,251 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildSummaryTab({
+    required String description,
+    required num balance,
+    required CommunityCurrency currency,
+    required String inviteCode,
+    required bool canManageBank,
+    required CommunityPolicy policy,
+    required String symbol,
+    required int? membersCount,
+    required String ownerUid,
+    required String role,
+    required Future<void> Function() handleBankSettings,
+  }) {
+    final chips = <Widget>[
+      _summaryChip(_roleLabel(role), color: kBrandBlue.withOpacity(0.1)),
+      if (membersCount != null)
+        _summaryChip('メンバー ${membersCount}人',
+            color: const Color(0xFFE2E8F0), textColor: kTextMain),
+    ];
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 140),
+      physics: const BouncingScrollPhysics(),
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: chips,
+        ),
+        const SizedBox(height: 16),
+        _summaryCard(
+          child: _BalanceSummaryCard(
+            balance: balance,
+            currency: currency,
+            inviteCode: inviteCode.isEmpty ? null : inviteCode,
+          ),
+        ),
+        if (description.isNotEmpty)
+          _summaryCard(
+            child: Text(
+              description,
+              style: const TextStyle(
+                color: kTextMain,
+                height: 1.5,
+              ),
+            ),
+          ),
+        _summaryCard(
+          title: 'ショートカット',
+          child: _QuickActions(
+            onSend: () {
+              Navigator.of(context).pop();
+              TransactionFlowScreen.open(
+                context,
+                user: widget.user,
+                communityId: widget.communityId,
+                initialKind: TransactionKind.transfer,
+              );
+            },
+            onRequest: () {
+              Navigator.of(context).pop();
+              TransactionFlowScreen.open(
+                context,
+                user: widget.user,
+                communityId: widget.communityId,
+                initialKind: TransactionKind.request,
+              );
+            },
+            onSplit: () {
+              Navigator.of(context).pop();
+              TransactionFlowScreen.open(
+                context,
+                user: widget.user,
+                communityId: widget.communityId,
+                initialKind: TransactionKind.split,
+              );
+            },
+            onTask: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('タスク募集は準備中です')),
+              );
+            },
+            onBankSettings: handleBankSettings,
+            canManageBank: canManageBank,
+          ),
+        ),
+        _summaryCard(
+          title: '通貨・中央銀行設定',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _CentralBankLinkCard(
+                currency: currency,
+                requiresApproval: policy.requiresApproval,
+                allowMinting: currency.allowMinting,
+                onOpen: handleBankSettings,
+                canManage: canManageBank,
+              ),
+              if (!canManageBank) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  '中央銀行の設定はコミュニティから管理できます。必要な場合は変更をリクエストしてください。',
+                  style: TextStyle(fontSize: 12, color: kTextSub),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: handleBankSettings,
+                    icon: const Icon(Icons.outgoing_mail, size: 18),
+                    label: const Text('変更をリクエスト'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        if (role == 'owner' || role == 'admin')
+          _summaryCard(
+            title: '参加申請',
+            child: _PendingJoinRequestsList(
+              communityId: widget.communityId,
+              service: _communityService,
+              approverUid: widget.user.uid,
+            ),
+          ),
+        _summaryCard(
+          title: '最近のタイムライン',
+          child: _CommunityActivityList(
+            communityId: widget.communityId,
+            symbol: symbol,
+            precision: currency.precision,
+            currentUid: widget.user.uid,
+          ),
+        ),
+        _summaryCard(
+          title: 'タスク',
+          child: _CommunityTasksList(
+            communityId: widget.communityId,
+          ),
+        ),
+        _summaryCard(
+          title: 'メンバー',
+          child: _CommunityMembersList(
+            communityId: widget.communityId,
+            service: _communityService,
+            currentUserUid: widget.user.uid,
+            currentUserRole: role,
+          ),
+        ),
+        if (role == 'owner')
+          _summaryCard(
+            title: 'リーダー設定',
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _openLeaderSettings(ownerUid),
+                  icon: const Icon(Icons.manage_accounts),
+                  label: const Text('リーダーを変更'),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'リーダーは常に1人必要です。脱退する場合は別のメンバーにリーダー権限を渡してください。',
+                  style: TextStyle(fontSize: 12, color: kTextSub),
+                ),
+              ],
+            ),
+          ),
+        _summaryCard(
+          child: _LeaveCommunitySection(
+            isLeader: role == 'owner',
+            membersCount: membersCount ?? 0,
+            onLeave: () => _confirmLeave(
+              isLeader: role == 'owner',
+              membersCount: membersCount ?? 0,
+            ),
+            leaving: _leaving,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _roleLabel(String role) {
+    return switch (role) {
+      'owner' => 'リーダー',
+      'admin' => 'モデレーター',
+      _ => 'メンバー',
+    };
+  }
+
+  Widget _summaryChip(String label,
+      {Color color = const Color(0xFFE2E8F0), Color textColor = kTextMain}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: textColor,
+          fontWeight: FontWeight.w600,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryCard({String? title, required Widget child}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: kCardWhite,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x11000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (title != null) ...[
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: kTextMain,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          child,
+        ],
+      ),
     );
   }
 
@@ -2010,14 +2187,17 @@ class _TalkThreadTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasUnread = entry.unreadCount > 0;
     final backgroundColor = entry.isPinned
-        ? kBrandBlue.withOpacity(0.1)
-        : entry.unreadCount > 0
-            ? kBrandBlue.withOpacity(0.08)
+        ? kCardWhite
+        : hasUnread
+            ? kBrandBlue.withOpacity(0.06)
             : kCardWhite;
     final borderColor = entry.isPinned
         ? kBrandBlue.withOpacity(0.4)
-        : const Color(0xFFE2E8F0);
+        : hasUnread
+            ? kBrandBlue.withOpacity(0.25)
+            : const Color(0xFFE2E8F0);
 
     return Material(
       color: Colors.transparent,
@@ -2025,15 +2205,15 @@ class _TalkThreadTile extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(24),
         child: Ink(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
             color: backgroundColor,
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: borderColor),
-            boxShadow: entry.isPinned || entry.unreadCount > 0
+            boxShadow: entry.isPinned || hasUnread
                 ? [
                     BoxShadow(
-                      color: kBrandBlue.withOpacity(0.12),
+                      color: kBrandBlue.withOpacity(0.18),
                       blurRadius: 20,
                       offset: const Offset(0, 10),
                     ),
@@ -2048,13 +2228,13 @@ class _TalkThreadTile extends StatelessWidget {
                 photoUrl: entry.partnerPhotoUrl,
                 fallbackBackground: entry.communityCoverUrl,
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Expanded(
                           child: Text(
@@ -2076,41 +2256,14 @@ class _TalkThreadTile extends StatelessWidget {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            entry.partnerDisplayName,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: kTextMain,
-                            ),
-                          ),
-                        ),
-                        if (entry.hasMention)
-                          Container(
-                            margin: const EdgeInsets.only(left: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: kAccentOrange,
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: const Text(
-                              '@',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
+                    const SizedBox(height: 8),
+                    Text(
+                      entry.partnerDisplayName,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: kTextMain,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     Text(
@@ -2123,19 +2276,71 @@ class _TalkThreadTile extends StatelessWidget {
                         color: kTextSub,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (entry.hasMention)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: kAccentOrange,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              '@メンション',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        if (entry.hasMention && entry.unreadCount > 0)
+                          const SizedBox(width: 8),
+                        if (entry.unreadCount > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: kBrandBlue,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              entry.unreadCount > 99
+                                  ? '99+'
+                                  : entry.unreadCount.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ],
                 ),
               ),
               const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    onPressed: onTogglePin,
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints.tightFor(width: 32, height: 32),
-                    icon: Icon(
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onTogglePin,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: entry.isPinned
+                          ? kBrandBlue.withOpacity(0.1)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
                       entry.isPinned
                           ? Icons.push_pin
                           : Icons.push_pin_outlined,
@@ -2143,30 +2348,7 @@ class _TalkThreadTile extends StatelessWidget {
                       color: entry.isPinned ? kBrandBlue : kTextSub,
                     ),
                   ),
-                  if (entry.unreadCount > 0) ...[
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: kBrandBlue,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        entry.unreadCount > 99
-                            ? '99+'
-                            : entry.unreadCount.toString(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ],
           ),
@@ -2224,6 +2406,965 @@ class _TalkAvatar extends StatelessWidget {
               ),
             )
           : null,
+    );
+  }
+}
+
+class _CommunityDetailHeader extends StatelessWidget {
+  const _CommunityDetailHeader({
+    required this.name,
+    required this.role,
+    required this.membersCount,
+    required this.discoverable,
+    required this.currencyName,
+    this.coverUrl,
+    this.inviteCode,
+    required this.onInvite,
+  });
+
+  final String name;
+  final String role;
+  final int? membersCount;
+  final bool discoverable;
+  final String currencyName;
+  final String? coverUrl;
+  final String? inviteCode;
+  final VoidCallback onInvite;
+
+  @override
+  Widget build(BuildContext context) {
+    final cover = coverUrl;
+    return Column(
+      children: [
+        SizedBox(
+          height: 160,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (cover != null && cover.isNotEmpty)
+                Image.network(
+                  cover,
+                  fit: BoxFit.cover,
+                )
+              else
+                Container(
+                  decoration: const BoxDecoration(
+                    gradient: kBrandGrad,
+                  ),
+                ),
+              Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [Color(0xCC000000), Colors.transparent],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          transform: Matrix4.translationValues(0, -48, 0),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            children: [
+              Container(
+                width: 96,
+                height: 96,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: Colors.white, width: 4),
+                  color: kCardWhite,
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x22000000),
+                      blurRadius: 20,
+                      offset: Offset(0, 12),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    name.isNotEmpty
+                        ? name.characters.first.toUpperCase()
+                        : '?',
+                    style: const TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.bold,
+                      color: kBrandBlue,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                name,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: kTextMain,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  _RoleChip(role: role),
+                  if (membersCount != null)
+                    Chip(
+                      label: Text('メンバー ${membersCount}人'),
+                      backgroundColor: kLightGray,
+                    ),
+                  if (discoverable)
+                    const Chip(
+                      label: Text('一般公開'),
+                      backgroundColor: kLightGray,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: kBrandBlue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.token, size: 16, color: kBrandBlue),
+                    const SizedBox(width: 6),
+                    Text(
+                      currencyName,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: kBrandBlue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  FilledButton(
+                    onPressed: onInvite,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: kBrandBlue,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 28,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      textStyle: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    child: const Text('招待する'),
+                  ),
+                  const SizedBox(width: 12),
+                  _roundIconButton(
+                    icon: Icons.notifications_none,
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('通知は準備中です')),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 12),
+                  _roundIconButton(
+                    icon: Icons.search,
+                    onPressed: () {
+                      if (inviteCode == null || inviteCode!.isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('招待コードの共有は準備中です')),
+                        );
+                        return;
+                      }
+                      Clipboard.setData(ClipboardData(text: inviteCode!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content:
+                                Text('招待コード「$inviteCode」をコピーしました')),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  static Widget _roundIconButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x11000000),
+            blurRadius: 10,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(999),
+          onTap: onPressed,
+          child: Icon(icon, color: kTextSub),
+        ),
+      ),
+    );
+  }
+}
+
+class _CommunityDetailTabHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _CommunityDetailTabHeaderDelegate({
+    required this.title,
+    required this.tabBar,
+  });
+
+  final String title;
+  final TabBar tabBar;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    final showTitle = shrinkOffset > 12;
+    return Container(
+      color: kCardWhite.withOpacity(0.95),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedOpacity(
+            opacity: showTitle ? 1 : 0,
+            duration: const Duration(milliseconds: 200),
+            child: SizedBox(
+              height: showTitle ? 48 : 0,
+              child: Center(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: kTextMain,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const Divider(height: 1),
+          tabBar,
+        ],
+      ),
+    );
+  }
+
+  @override
+  double get maxExtent => 48 + tabBar.preferredSize.height + 1;
+
+  @override
+  double get minExtent => tabBar.preferredSize.height + 1;
+
+  @override
+  bool shouldRebuild(covariant _CommunityDetailTabHeaderDelegate oldDelegate) {
+    return oldDelegate.title != title || oldDelegate.tabBar != tabBar;
+  }
+}
+
+class _CommunityTalkTab extends StatefulWidget {
+  const _CommunityTalkTab({
+    required this.communityId,
+    required this.communityName,
+    required this.communityCoverUrl,
+    required this.user,
+    required this.onOpenThread,
+    required this.onTogglePin,
+  });
+
+  final String communityId;
+  final String communityName;
+  final String? communityCoverUrl;
+  final User user;
+  final Future<void> Function(_TalkEntry entry) onOpenThread;
+  final Future<void> Function(_TalkEntry entry) onTogglePin;
+
+  @override
+  State<_CommunityTalkTab> createState() => _CommunityTalkTabState();
+}
+
+class _CommunityTalkTabState extends State<_CommunityTalkTab> {
+  late final TextEditingController _searchCtrl;
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _threadsStream;
+  late final Stream<int> _pendingRequestsStream;
+  _TalkFilter? _selectedFilter;
+  _TalkSort _selectedSort = _TalkSort.unreadFirst;
+  String _keyword = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl = TextEditingController();
+    _searchCtrl.addListener(_handleSearch);
+    _threadsStream = FirebaseFirestore.instance
+        .collection('community_chats')
+        .doc(widget.communityId)
+        .collection('threads')
+        .where('participants', arrayContains: widget.user.uid)
+        .snapshots();
+    _pendingRequestsStream = FirebaseFirestore.instance
+        .collectionGroup('items')
+        .where('toUid', isEqualTo: widget.user.uid)
+        .where('status', isEqualTo: 'pending')
+        .snapshots()
+        .map((snap) {
+      var count = 0;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final cid = data['cid'];
+        if (cid is String && cid == widget.communityId) {
+          count += 1;
+        }
+      }
+      return count;
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.removeListener(_handleSearch);
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleSearch() {
+    final value = _searchCtrl.text.trim().toLowerCase();
+    if (value == _keyword) return;
+    setState(() => _keyword = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _threadsStream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('トークを取得できませんでした: ${snapshot.error}'),
+          );
+        }
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return _talkEmptyState();
+        }
+        return FutureBuilder<List<_TalkEntry?>> (
+          future: Future.wait(docs.map(_buildTalkEntry)),
+          builder: (context, metaSnap) {
+            if (metaSnap.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (metaSnap.hasError) {
+              return Center(
+                child:
+                    Text('トークを処理できませんでした: ${metaSnap.error}'),
+              );
+            }
+            final entries =
+                (metaSnap.data ?? const <_TalkEntry?>[]).whereType<_TalkEntry>()
+                    .toList();
+            if (entries.isEmpty) {
+              return _talkEmptyState();
+            }
+
+            final filtered = _applyFilters(entries);
+            if (filtered.isEmpty) {
+              return _talkEmptyState(
+                  message: '条件に一致するトークがありません');
+            }
+
+            final pinned = filtered.where((e) => e.isPinned).toList();
+            final unread =
+                filtered.where((e) => !e.isPinned && e.unreadCount > 0).toList();
+            final recent =
+                filtered.where((e) => !e.isPinned && e.unreadCount == 0).toList();
+
+            _applySort(pinned);
+            _applySort(unread);
+            _applySort(recent);
+
+            final sections = <Widget>[
+              StreamBuilder<int>(
+                stream: _pendingRequestsStream,
+                builder: (context, requestSnap) {
+                  final count = requestSnap.data ?? 0;
+                  if (count <= 0) {
+                    return const SizedBox.shrink();
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: _PendingRequestBanner(
+                      count: count,
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('承認待ちは準備中です')),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
+              _searchField(),
+              const SizedBox(height: 12),
+              _filtersAndSort(),
+            ];
+
+            void addSection(String title, List<_TalkEntry> data) {
+              if (data.isEmpty) return;
+              sections
+                ..add(const SizedBox(height: 20))
+                ..add(_talkSectionHeader(title))
+                ..add(const SizedBox(height: 10));
+              for (final entry in data) {
+                sections
+                  ..add(_TalkThreadTile(
+                    entry: entry,
+                    timeLabel: _formatTime(entry.updatedAt),
+                    onTap: () => widget.onOpenThread(entry),
+                    onTogglePin: () => widget.onTogglePin(entry),
+                  ))
+                  ..add(const SizedBox(height: 12));
+              }
+            }
+
+            addSection('ピン留め', pinned);
+            addSection('未読', unread);
+            addSection('最近', recent);
+
+            if (pinned.isEmpty && unread.isEmpty && recent.isEmpty) {
+              sections.add(
+                Padding(
+                  padding: const EdgeInsets.only(top: 32),
+                  child: _talkEmptyState(
+                      message: '条件に一致するトークがありません'),
+                ),
+              );
+            }
+
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 140),
+              physics: const BouncingScrollPhysics(),
+              children: sections,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _talkSectionHeader(String title) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
+        color: kTextMain,
+      ),
+    );
+  }
+
+  Widget _searchField() {
+    return TextField(
+      controller: _searchCtrl,
+      decoration: InputDecoration(
+        hintText: 'チャンネル・メッセージ検索',
+        prefixIcon: const Icon(Icons.search, color: kTextSub),
+        filled: true,
+        fillColor: kCardWhite,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: kBrandBlue, width: 2),
+        ),
+      ),
+    );
+  }
+
+  Widget _filtersAndSort() {
+    return Row(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _filterPill('すべて', _selectedFilter == null, () {
+                  setState(() => _selectedFilter = null);
+                }),
+                const SizedBox(width: 8),
+                _filterPill('未読', _selectedFilter == _TalkFilter.unread, () {
+                  setState(() => _selectedFilter = _TalkFilter.unread);
+                }),
+                const SizedBox(width: 8),
+                _filterPill(
+                  'メンション',
+                  _selectedFilter == _TalkFilter.mention,
+                  () => setState(() => _selectedFilter = _TalkFilter.mention),
+                  trailing: Container(
+                    width: 18,
+                    height: 18,
+                    decoration: const BoxDecoration(
+                      color: kAccentOrange,
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      '@',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _filterPill('参加中', _selectedFilter == _TalkFilter.active, () {
+                  setState(() => _selectedFilter = _TalkFilter.active);
+                }),
+                const SizedBox(width: 8),
+                _filterPill('ピン留め', _selectedFilter == _TalkFilter.pinned, () {
+                  setState(() => _selectedFilter = _TalkFilter.pinned);
+                }),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        PopupMenuButton<_TalkSort>(
+          initialValue: _selectedSort,
+          onSelected: (value) => setState(() => _selectedSort = value),
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: _TalkSort.unreadFirst,
+              child: Text('未読優先'),
+            ),
+            PopupMenuItem(
+              value: _TalkSort.recent,
+              child: Text('最近更新'),
+            ),
+            PopupMenuItem(
+              value: _TalkSort.name,
+              child: Text('名前順'),
+            ),
+          ],
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: kCardWhite,
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.sort, size: 18, color: kTextSub),
+                SizedBox(width: 6),
+                Text(
+                  '並び替え',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: kTextMain,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _filterPill(String label, bool isActive, VoidCallback onTap,
+      {Widget? trailing}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? kBrandBlue : kCardWhite,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isActive ? kBrandBlue : const Color(0xFFE2E8F0),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: isActive ? Colors.white : kTextMain,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 6),
+              trailing,
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<_TalkEntry> _applyFilters(List<_TalkEntry> entries) {
+    return [
+      for (final entry in entries)
+        if ((_keyword.isEmpty ||
+                ('${entry.partnerDisplayName} ${entry.previewText}')
+                    .toLowerCase()
+                    .contains(_keyword)) &&
+            _matchesFilter(entry))
+          entry
+    ];
+  }
+
+  bool _matchesFilter(_TalkEntry entry) {
+    final filter = _selectedFilter;
+    if (filter == null) return true;
+    return switch (filter) {
+      _TalkFilter.unread => entry.unreadCount > 0,
+      _TalkFilter.mention => entry.hasMention,
+      _TalkFilter.active => true,
+      _TalkFilter.pinned => entry.isPinned,
+    };
+  }
+
+  void _applySort(List<_TalkEntry> entries) {
+    switch (_selectedSort) {
+      case _TalkSort.unreadFirst:
+        entries.sort((a, b) {
+          final unreadCompare = b.unreadCount.compareTo(a.unreadCount);
+          if (unreadCompare != 0) return unreadCompare;
+          final timeA = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final timeB = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return timeB.compareTo(timeA);
+        });
+        break;
+      case _TalkSort.recent:
+        entries.sort((a, b) {
+          final timeA = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final timeB = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return timeB.compareTo(timeA);
+        });
+        break;
+      case _TalkSort.name:
+        entries.sort((a, b) => a.partnerDisplayName
+            .toLowerCase()
+            .compareTo(b.partnerDisplayName.toLowerCase()));
+        break;
+    }
+  }
+
+  Future<_TalkEntry?> _buildTalkEntry(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    try {
+      final data = doc.data();
+      final participants = List<String>.from(
+          (data['participants'] as List?) ?? const <String>[]);
+      final otherUid = participants.firstWhere(
+        (uid) => uid != widget.user.uid,
+        orElse: () => '',
+      );
+      if (otherUid.isEmpty) {
+        return null;
+      }
+
+      final userSnap =
+          await FirebaseFirestore.instance.doc('users/$otherUid').get();
+      final userData = userSnap.data() ?? <String, dynamic>{};
+      final displayName =
+          (userData['displayName'] as String?)?.trim() ?? otherUid;
+      final photoUrl = (userData['photoUrl'] as String?)?.trim();
+
+      final unreadMap = Map<String, dynamic>.from(
+          (data['unreadCounts'] as Map?) ?? const <String, dynamic>{});
+      final unreadRaw = unreadMap[widget.user.uid];
+      final unread = unreadRaw is num ? unreadRaw.toInt() : 0;
+
+      final pinnedBy = List<String>.from((data['pinnedBy'] as List?) ?? const []);
+      final updatedAt = _readTimestamp(data['updatedAt']);
+      final lastMessage = (data['lastMessage'] as String?)?.trim() ?? '';
+      final lastSenderUid = (data['lastSenderUid'] as String?) ?? '';
+      final hasMention = _detectMention(lastMessage, lastSenderUid);
+
+      final previewText = lastMessage.isEmpty
+          ? 'メッセージはまだありません'
+          : (lastSenderUid == widget.user.uid
+              ? 'あなた: $lastMessage'
+              : '$displayName: $lastMessage');
+
+      return _TalkEntry(
+        threadId: doc.id,
+        communityId: widget.communityId,
+        communityName: widget.communityName,
+        communityCoverUrl: widget.communityCoverUrl,
+        partnerUid: otherUid,
+        partnerDisplayName: displayName,
+        partnerPhotoUrl: photoUrl,
+        previewText: previewText,
+        unreadCount: unread,
+        updatedAt: updatedAt,
+        hasMention: hasMention,
+        isPinned: pinnedBy.contains(widget.user.uid),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _detectMention(String message, String senderUid) {
+    if (message.isEmpty || senderUid == widget.user.uid) return false;
+    final lower = message.toLowerCase();
+    final displayName = widget.user.displayName;
+    if (displayName == null || displayName.trim().isEmpty) {
+      return lower.contains('@${widget.user.uid.toLowerCase()}');
+    }
+    return lower.contains('@${displayName.toLowerCase()}') ||
+        lower.contains('@${widget.user.uid.toLowerCase()}');
+  }
+
+  String? _formatTime(DateTime? time) {
+    if (time == null) return null;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(time.year, time.month, time.day);
+    if (target == today) {
+      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+    }
+    if (now.year == time.year) {
+      return '${time.month}/${time.day}';
+    }
+    return '${time.year}/${time.month}/${time.day}';
+  }
+
+  Widget _talkEmptyState({String message = 'まだトークはありません'}) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: kBrandBlue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child:
+                const Icon(Icons.chat_bubble_outline, color: kBrandBlue, size: 30),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: kTextMain,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'メンバーとコミュニケーションを始めましょう。',
+            style: TextStyle(color: kTextSub),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ComingSoonTab extends StatelessWidget {
+  const _ComingSoonTab({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        message,
+        style: const TextStyle(color: kTextSub, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+class _MembersTab extends StatelessWidget {
+  const _MembersTab({
+    required this.communityId,
+    required this.service,
+    required this.currentUserUid,
+    required this.currentUserRole,
+  });
+
+  final String communityId;
+  final CommunityService service;
+  final String currentUserUid;
+  final String currentUserRole;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 140),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: kCardWhite,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x11000000),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'メンバー一覧',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: kTextMain,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _CommunityMembersList(
+                communityId: communityId,
+                service: service,
+                currentUserUid: currentUserUid,
+                currentUserRole: currentUserRole,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BankTab extends StatelessWidget {
+  const _BankTab({
+    required this.onOpen,
+    required this.canManage,
+    required this.currency,
+    required this.policy,
+  });
+
+  final Future<void> Function() onOpen;
+  final bool canManage;
+  final CommunityCurrency currency;
+  final CommunityPolicy policy;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 140),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: kCardWhite,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x11000000),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '中央銀行の設定',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: kTextMain,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _CentralBankLinkCard(
+                currency: currency,
+                requiresApproval: policy.requiresApproval,
+                allowMinting: currency.allowMinting,
+                onOpen: onOpen,
+                canManage: canManage,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                canManage
+                    ? '中央銀行を直接管理できます。設定を更新してコミュニティの経済を整えましょう。'
+                    : '中央銀行の設定はリーダーが管理しています。変更が必要な場合はリクエストを送信してください。',
+                style: const TextStyle(color: kTextSub),
+              ),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.icon(
+                  onPressed: onOpen,
+                  icon: Icon(
+                      canManage ? Icons.account_balance : Icons.outgoing_mail),
+                  label:
+                      Text(canManage ? '中央銀行を開く' : '変更をリクエスト'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
