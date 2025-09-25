@@ -1457,6 +1457,52 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
   final CommunityService _communityService = CommunityService();
   bool _leaving = false;
 
+  Future<void> _togglePin(_TalkEntry entry, BuildContext context) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('community_chats')
+          .doc(entry.communityId)
+          .collection('threads')
+          .doc(entry.threadId)
+          .set({
+        'pinnedBy': entry.isPinned
+            ? FieldValue.arrayRemove([widget.user.uid])
+            : FieldValue.arrayUnion([widget.user.uid]),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ピン留めを変更できませんでした: $e')),
+      );
+    }
+  }
+
+  Future<void> _openThread(BuildContext context, _TalkEntry entry) async {
+    try {
+      final memberSnap = await FirebaseFirestore.instance
+          .doc('memberships/${entry.communityId}_${entry.partnerUid}')
+          .get();
+      final role = (memberSnap.data()?['role'] as String?) ?? 'member';
+      if (!mounted) return;
+      await MemberChatScreen.open(
+        context,
+        communityId: entry.communityId,
+        communityName: entry.communityName,
+        currentUser: widget.user,
+        partnerUid: entry.partnerUid,
+        partnerDisplayName: entry.partnerDisplayName,
+        partnerPhotoUrl: entry.partnerPhotoUrl,
+        threadId: entry.threadId,
+        memberRole: role,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('チャットを開けませんでした: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final membershipStream = FirebaseFirestore.instance
@@ -1589,7 +1635,8 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                               currencyName: currency.name.isEmpty
                                   ? '独自通貨'
                                   : currency.name,
-                              coverUrl: communityPreview?['coverUrl'] as String?,
+                              coverUrl:
+                                  widget.communityPreview?['coverUrl'] as String?,
                               inviteCode:
                                   inviteCode.isEmpty ? null : inviteCode,
                               onInvite: () {
@@ -1662,7 +1709,7 @@ class _CommunityDetailSheetState extends State<_CommunityDetailSheet> {
                                 communityId: widget.communityId,
                                 communityName: name,
                                 communityCoverUrl:
-                                    communityPreview?['coverUrl'] as String?,
+                                    widget.communityPreview?['coverUrl'] as String?,
                                 user: widget.user,
                                 onOpenThread: (entry) =>
                                     _openThread(context, entry),
