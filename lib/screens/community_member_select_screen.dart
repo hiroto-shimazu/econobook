@@ -140,13 +140,11 @@ class _CommunityMemberSelectScreenState
   MemberSortOption _sortOption = MemberSortOption.recent;
   String _searchQuery = '';
   final Set<String> _selectedUids = <String>{};
-
   final Map<_CommunityDashboardTab, GlobalKey> _sectionKeys = {
     for (final tab in _CommunityDashboardTab.values) tab: GlobalKey(),
   };
   _CommunityDashboardTab _activeDashboardTab =
       _CommunityDashboardTab.overview;
-
 
   @override
   void initState() {
@@ -1010,7 +1008,6 @@ class _CommunityMemberSelectScreenState
                       pendingCount: _pendingCount,
                     ),
                   ),
-                  SliverToBoxAdapter(child: _buildFilterSection(theme)),
                   SliverPersistentHeader(
                     pinned: true,
                     delegate: _PinnedTabHeaderDelegate(
@@ -1069,7 +1066,9 @@ class _CommunityMemberSelectScreenState
                   else if (members.isEmpty)
                     const SliverToBoxAdapter(
                       child: Padding(
+
                         padding: EdgeInsets.fromLTRB(20, 48, 20, 120),
+
                         child: _EmptyState(),
                       ),
                     )
@@ -1086,9 +1085,8 @@ class _CommunityMemberSelectScreenState
                               member: member,
                               selected: selected,
                               currencyCode: currencyCode,
-                              onTap: () => _toggleSelection(
-                                  member.membership.userId),
-                              onTap: () =>
+
+                              onSelectToggle: () =>
                                   _toggleSelection(member.membership.userId),
 
                               onDetail: () => _showMemberDetail(member),
@@ -1232,13 +1230,6 @@ class _CommunityMemberSelectScreenState
             ),
           ),
           const SizedBox(height: 16),
-          _OverviewCards(
-            totalMembers: _members.length,
-            pendingCount: _pendingCount,
-            bankManagerCount: _bankManagerCount,
-            minorCount:
-                _members.where((m) => m.profile?.minor == true).length,
-          ),
         ],
       ),
     );
@@ -2171,20 +2162,20 @@ class _MemberCard extends StatelessWidget {
     required this.member,
     required this.selected,
     required this.currencyCode,
-    required this.onTap,
+    required this.onSelectToggle,
     required this.onDetail,
   });
 
   final _SelectableMember member;
   final bool selected;
   final String currencyCode;
-  final VoidCallback onTap;
+  final VoidCallback onSelectToggle;
   final VoidCallback onDetail;
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: onSelectToggle,
       borderRadius: BorderRadius.circular(24),
       child: Ink(
         decoration: BoxDecoration(
@@ -2229,7 +2220,7 @@ class _MemberCard extends StatelessWidget {
                           ),
                           Checkbox.adaptive(
                             value: selected,
-                            onChanged: (_) => onTap(),
+                            onChanged: (_) => onSelectToggle(),
                           ),
                         ],
                       ),
