@@ -12,6 +12,7 @@ import 'central_bank_screen.dart';
 import 'community_home_screen.dart';
 import 'community_create_screen.dart';
 import 'community_leader_settings_screen.dart';
+import 'member_chat_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
 
 // ---- Brand tokens (アプリ全体と統一) ----
