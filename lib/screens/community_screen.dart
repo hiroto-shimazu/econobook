@@ -51,6 +51,305 @@ int _compareJoinedAtDesc(
   return bDate.compareTo(aDate);
 }
 
+// ====== Inserted enums, data classes, and widgets for community_screen ======
+enum _TalkFilter { unread, mention, active, pinned }
+enum _TalkSort { unreadFirst, recent, name }
+
+class _TalkFilterChipData {
+  final String label;
+  final _TalkFilter filter;
+  final Color color;
+  const _TalkFilterChipData({
+    required this.label,
+    required this.filter,
+    required this.color,
+  });
+}
+
+class _TalkEntry {
+  final String threadId;
+  final String communityId;
+  final String communityName;
+  final String? communityCoverUrl;
+  final String partnerUid;
+  final String partnerDisplayName;
+  final String? partnerPhotoUrl;
+  final String previewText;
+  final int unreadCount;
+  final DateTime? updatedAt;
+  final bool hasMention;
+  final bool isPinned;
+
+  const _TalkEntry({
+    required this.threadId,
+    required this.communityId,
+    required this.communityName,
+    required this.communityCoverUrl,
+    required this.partnerUid,
+    required this.partnerDisplayName,
+    required this.partnerPhotoUrl,
+    required this.previewText,
+    required this.unreadCount,
+    required this.updatedAt,
+    required this.hasMention,
+    required this.isPinned,
+  });
+}
+
+class _TalkFilterChip extends StatelessWidget {
+  final String label;
+  final bool isActive;
+  final Color color;
+  final VoidCallback onTap;
+  const _TalkFilterChip({
+    super.key,
+    required this.label,
+    required this.isActive,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? color.withOpacity(0.12) : const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isActive ? color : const Color(0xFFE2E8F0),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: isActive ? color : kTextSub,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TalkThreadTile extends StatelessWidget {
+  final _TalkEntry entry;
+  final String? timeLabel;
+  final VoidCallback onTap;
+  final VoidCallback onTogglePin;
+  const _TalkThreadTile({
+    super.key,
+    required this.entry,
+    required this.timeLabel,
+    required this.onTap,
+    required this.onTogglePin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: kCardWhite,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                _avatar(entry),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              entry.partnerDisplayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: kTextMain,
+                              ),
+                            ),
+                          ),
+                          if (timeLabel != null)
+                            Text(
+                              timeLabel!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: kTextSub,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        entry.previewText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: kTextSub,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          if (entry.isPinned)
+                            const Icon(Icons.push_pin, size: 14, color: kTextSub),
+                          if (entry.isPinned) const SizedBox(width: 8),
+                          if (entry.unreadCount > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: kBrandBlue,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(
+                                '${entry.unreadCount}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          const Spacer(),
+                          IconButton(
+                            icon: Icon(
+                              entry.isPinned ? Icons.star : Icons.star_border,
+                              size: 20,
+                              color: entry.isPinned ? kAccentOrange : kTextSub,
+                            ),
+                            onPressed: onTogglePin,
+                            tooltip: entry.isPinned ? 'ピンを外す' : 'ピン留め',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _avatar(_TalkEntry e) {
+    if (e.partnerPhotoUrl != null && e.partnerPhotoUrl!.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.network(
+          e.partnerPhotoUrl!,
+          width: 44,
+          height: 44,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: kBrandBlue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Icon(Icons.person_outline, color: kBrandBlue),
+    );
+  }
+}
+
+class _PendingRequestBanner extends StatelessWidget {
+  final int count;
+  final VoidCallback onPressed;
+  const _PendingRequestBanner({super.key, required this.count, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBEB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_active_outlined, color: kAccentOrange),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '承認待ちのリクエストが ${count} 件あります',
+              style: const TextStyle(
+                color: kTextMain,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onPressed,
+            child: const Text('確認する'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoleChip extends StatelessWidget {
+  final String role;
+  const _RoleChip({super.key, required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (role) {
+      'owner' => 'リーダー',
+      'admin' => '管理',
+      'member' => 'メンバー',
+      _ => role,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: kBrandBlue,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+// ====== End of inserted enums, data classes, and widgets ======
+
 class CommunitiesScreen extends StatefulWidget {
   const CommunitiesScreen({super.key, required this.user});
   final User user;
@@ -358,6 +657,192 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 140),
       children: children,
+    );
+  }
+
+    Widget _emptyMyCommunities(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: kCardWhite,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'まだ所属コミュニティがありません',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: kTextMain,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'コミュニティを作成するか、招待コードで参加できます。',
+            style: TextStyle(color: kTextSub),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              SizedBox(
+                height: 40,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: kBrandBlue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () => _createCommunity(context),
+                  child: const Text('コミュニティを作成'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              SizedBox(
+                height: 40,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: kBrandBlue,
+                    side: const BorderSide(color: kBrandBlue),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () async {
+                    final ctrl = TextEditingController();
+                    final code = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) {
+                        return AlertDialog(
+                          title: const Text('招待コードを入力'),
+                          content: TextField(
+                            controller: ctrl,
+                            decoration: const InputDecoration(hintText: '例: ABC123'),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(),
+                              child: const Text('キャンセル'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+                              child: const Text('参加'),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                    if (code != null && code.isNotEmpty) {
+                      await _joinCommunityWithCode(context, code);
+                    }
+                  },
+                  child: const Text('招待コードで参加'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openCommunitySheet(
+    BuildContext context,
+    String communityId,
+    Map<String, dynamic> membershipData,
+    dynamic currentUser,
+    Map<String, dynamic> community,
+  ) async {
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final name = (community['name'] as String?) ?? communityId;
+        final role = (membershipData['role'] as String?) ?? 'member';
+        final members = (community['membersCount'] as num?)?.toInt();
+        final currency = (community['currency'] as Map<String, dynamic>?) ?? const {};
+        final currencyName = (currency['name'] as String?)?.trim();
+
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 16,
+            bottom: 16 + MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'コミュニティ情報',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: kTextMain,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text('名前: $name', style: const TextStyle(color: kTextMain)),
+              const SizedBox(height: 8),
+              if (members != null)
+                Text('メンバー数: $members', style: const TextStyle(color: kTextMain)),
+              if (currencyName != null && currencyName.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text('通貨: $currencyName', style: const TextStyle(color: kTextMain)),
+              ],
+              const SizedBox(height: 8),
+              Text('あなたの権限: $role', style: const TextStyle(color: kTextMain)),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: kBrandBlue,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _createCommunity(context);
+                      },
+                      child: const Text('新しいコミュニティを作成'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -689,6 +1174,76 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     }
     return '${time.year}/${time.month}/${time.day}';
   }
+
+  // ====== Inserted instance methods for UI ======
+  Future<void> _createCommunity(BuildContext context) async {
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(builder: (_) => const CommunityCreateScreen()),
+    );
+    if (created == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('コミュニティを作成しました')),
+      );
+    }
+  }
+
+  Widget _coverFallback(String title) {
+    final t = title.trim();
+    final initial = t.isEmpty ? '?' : t[0].toUpperCase();
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: kBrandBlue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: kBrandBlue,
+          fontSize: 20,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _joinCommunityWithCode(BuildContext context, String code) async {
+    final trimmed = code.trim();
+    if (trimmed.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('コードを入力してください')),
+      );
+      return;
+    }
+    try {
+      final snap = await FirebaseFirestore.instance.doc('communities/$trimmed').get();
+      if (!snap.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('コミュニティが見つかりませんでした')),
+        );
+        return;
+      }
+      final data = snap.data() ?? <String, dynamic>{};
+      final name = (data['name'] as String?) ?? trimmed;
+      if (!mounted) return;
+      await CommunityMemberSelectScreen.open(
+        context,
+        communityId: trimmed,
+        currentUserUid: widget.user.uid,
+        communityName: name,
+        currentUserRole: 'member',
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('参加に失敗しました: $e')),
+      );
+    }
+  }
+  // ====== End of inserted instance methods for UI ======
 
   @override
   Widget build(BuildContext context) {
@@ -1255,3 +1810,4 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       ),
     );
   }
+}
