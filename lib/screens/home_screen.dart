@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'account_screen.dart';
-import 'community_screen.dart';
+import 'communities/communities_screen.dart';
 import 'news_screen.dart';
 
 // ---- Brand tokens (SignIn と統一) ----
