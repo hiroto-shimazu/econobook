@@ -146,6 +146,9 @@ class _CommunityMemberSelectScreenState
   };
   _CommunityDashboardTab _activeDashboardTab =
       _CommunityDashboardTab.overview;
+  bool _requireApprovalSetting = true;
+  bool _isDiscoverableSetting = false;
+  bool _dualApprovalEnabled = true;
 
   @override
   void initState() {
@@ -266,285 +269,294 @@ class _CommunityMemberSelectScreenState
   }
 
   Widget _buildTalkSection() {
-    const talkItems = [
-      _TalkItem(
-        channel: '#general',
-        snippet: '鈴木: 今日のランチどうしますか？',
+    const pinnedChannels = [
+      _TalkChannelEntry(
+        title: 'settlement',
+        subtitle: '佐藤: @あなた 会費の承認お願いします',
         timeLabel: '10:24',
-        unreadCount: 3,
-      ),
-      _TalkItem(
-        channel: '#settlement',
-        snippet: '@佐藤: 会費の承認お願いします',
-        timeLabel: '昨日',
-      ),
-      _TalkItem(
-        channel: '#research',
-        snippet: '田中: 新しい論文ドラフトを共有しました。',
-        timeLabel: '2日前',
+        hasMention: true,
+        highlightBadge: '@',
+        mentionColor: _kAccentOrange,
+        borderColor: Color(0x33F59E0B),
       ),
     ];
+    const unreadChannels = [
+      _TalkChannelEntry(
+        title: 'general',
+        subtitle: '鈴木: 今日のランチどうしますか？',
+        timeLabel: '15:30',
+        unreadCount: 3,
+        highlightColor: Color(0xFFE5EDFF),
+      ),
+    ];
+    const recentChannels = [
+      _TalkChannelEntry(
+        title: 'confidential',
+        subtitle: '田中: 次回の予算について',
+        timeLabel: '昨日',
+        inlineIcon: Icons.folder_shared_outlined,
+      ),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(
-          icon: Icons.forum_outlined,
-          title: 'トーク',
-          color: _kMainBlue,
+        _HighlightBanner(
+          icon: Icons.info_outline,
+          backgroundColor: _kAccentOrange.withOpacity(0.1),
+          iconColor: _kAccentOrange,
+          message: const Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: '承認待ち依頼が '),
+                TextSpan(
+                  text: '3件',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                TextSpan(text: ' あります。'),
+              ],
+            ),
+            style: TextStyle(fontSize: 13, color: _kTextMain),
+          ),
+          actionLabel: '一覧へ',
+          onAction: () => _showNotImplemented('承認待ち一覧'),
         ),
         const SizedBox(height: 16),
-        for (final item in talkItems)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _SectionCard(
-              leading: const _RoundIcon(
-                icon: Icons.tag,
-                backgroundColor: Color(0xFFF1F5F9),
-                foregroundColor: _kTextSub,
-              ),
-              title: Text(
-                item.channel,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: _kTextMain,
-                ),
-              ),
-              subtitle: Text(
-                item.snippet,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: _kTextSub,
-                ),
-              ),
-              trailing: _TalkTrailing(
-                timeLabel: item.timeLabel,
-                unreadCount: item.unreadCount,
-              ),
-              onTap: () => _showNotImplemented('チャンネル ${item.channel}'),
-            ),
-          ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () => _showNotImplemented('トーク'),
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('トーク一覧を開く'),
-          ),
+        const _DashboardSearchField(
+          hintText: 'チャンネル・メッセージ検索',
+        ),
+        const SizedBox(height: 12),
+        _ScrollableFilterRow(
+          filters: const [
+            _FilterChipConfig(label: 'すべて', isPrimary: true),
+            _FilterChipConfig(label: '未読'),
+            _FilterChipConfig(label: 'メンション', trailingBadge: '@'),
+            _FilterChipConfig(label: '参加中'),
+          ],
+          onFilterTap: (label) => _showNotImplemented('フィルター: $label'),
+        ),
+        const SizedBox(height: 20),
+        _TalkChannelGroup(
+          title: 'ピン留め',
+          entries: pinnedChannels,
+          onTapChannel: _showNotImplemented,
+        ),
+        const SizedBox(height: 16),
+        _TalkChannelGroup(
+          title: '未読',
+          entries: unreadChannels,
+          onTapChannel: _showNotImplemented,
+        ),
+        const SizedBox(height: 16),
+        _TalkChannelGroup(
+          title: '最近',
+          entries: recentChannels,
+          onTapChannel: _showNotImplemented,
         ),
       ],
     );
   }
 
   Widget _buildWalletSection(String currencyCode) {
-    final walletItems = [
-      _WalletItem(
-        title: '研究会会費',
-        counterparty: '山田太郎',
-        amount: 2500.0,
-        timeLabel: '今日 09:12',
-        type: WalletActivityType.deposit,
+    const quickActions = [
+      _WalletQuickAction(
+        icon: Icons.north_east,
+        label: '送る',
+        backgroundColor: Color(0xFFEFF4FF),
+        foregroundColor: _kMainBlue,
       ),
-      _WalletItem(
-        title: '備品購入',
-        counterparty: '佐藤花子',
-        amount: 1200.0,
-        timeLabel: '昨日',
+      _WalletQuickAction(
+        icon: Icons.south_west,
+        label: '請求',
+        backgroundColor: Color(0xFFE6F6EF),
+        foregroundColor: _kSubGreen,
+      ),
+      _WalletQuickAction(
+        icon: Icons.grid_view_rounded,
+        label: '割り勘',
+        backgroundColor: Color(0xFFE2E8F0),
+        foregroundColor: _kTextSub,
+      ),
+      _WalletQuickAction(
+        icon: Icons.task_alt_outlined,
+        label: 'タスク',
+        backgroundColor: Color(0xFFE2E8F0),
+        foregroundColor: _kTextSub,
+      ),
+    ];
+
+    const transactions = [
+      _WalletTransaction(
+        title: '佐藤さんへ送金',
+        subtitle: '9月24日 18:30',
+        amount: -500,
         type: WalletActivityType.withdrawal,
       ),
-      _WalletItem(
-        title: '部室ドリンク補充',
-        counterparty: '小林',
-        amount: 800.0,
-        timeLabel: '3日前',
+      _WalletTransaction(
+        title: '田中さんからの報酬',
+        subtitle: '9月24日 15:00',
+        amount: 2000,
+        type: WalletActivityType.deposit,
+      ),
+      _WalletTransaction(
+        title: '飲み会 割り勘',
+        subtitle: '9月23日 21:00',
+        amount: -950,
         type: WalletActivityType.withdrawal,
       ),
     ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(
-          icon: Icons.account_balance_wallet_outlined,
-          title: 'ウォレット',
-          color: _kSubGreen,
+        _WalletBalanceCard(
+          currencyCode: currencyCode,
+          balance: 25800,
+          monthlyInflow: 5200,
+          monthlyOutflow: 1450,
+          pendingCount: 3,
         ),
         const SizedBox(height: 16),
-        for (final item in walletItems)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _SectionCard(
-              leading: _RoundIcon(
-                icon: item.type == WalletActivityType.deposit
-                    ? Icons.south_west
-                    : Icons.north_east,
-                backgroundColor: item.type == WalletActivityType.deposit
-                    ? const Color(0xFFE0F2FE)
-                    : const Color(0xFFFFE4E6),
-                foregroundColor: item.type == WalletActivityType.deposit
-                    ? _kMainBlue
-                    : const Color(0xFFDC2626),
-              ),
-              title: Text(
-                item.title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: _kTextMain,
-                ),
-              ),
-              subtitle: Text(
-                '${item.counterparty} · ${item.timeLabel}',
-                style: const TextStyle(fontSize: 13, color: _kTextSub),
-              ),
-              trailing: Text(
-                '${item.type == WalletActivityType.deposit ? '+' : '-'}${item.amount.toStringAsFixed(0)} $currencyCode',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: item.type == WalletActivityType.deposit
-                      ? _kSubGreen
-                      : const Color(0xFFDC2626),
-                ),
-              ),
-              onTap: () => _showNotImplemented(item.title),
-            ),
-          ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () => _showNotImplemented('ウォレット'),
-            icon: const Icon(Icons.account_balance_wallet_outlined),
-            label: const Text('ウォレットを開く'),
-          ),
+        _WalletActionGrid(
+          actions: quickActions,
+          onTap: (label) => _showNotImplemented('ウォレットアクション: $label'),
+        ),
+        const SizedBox(height: 16),
+        _WalletApprovalCard(
+          requester: '鈴木さん',
+          amount: 300,
+          currencyCode: currencyCode,
+          memo: '先日のランチ代',
+          onApprove: () => _showNotImplemented('請求承認'),
+          onReject: () => _showNotImplemented('請求却下'),
+        ),
+        const SizedBox(height: 16),
+        _WalletTransactionList(
+          transactions: transactions,
+          currencyCode: currencyCode,
+          onViewAll: () => _showNotImplemented('取引履歴'),
         ),
       ],
     );
   }
 
   Widget _buildSettingsSection() {
-    const settings = [
-      _SettingsItem(
-        icon: Icons.edit_outlined,
-        title: 'コミュニティプロフィール',
-        description: 'カバー画像や説明文、タグを編集します。',
-      ),
-      _SettingsItem(
-        icon: Icons.admin_panel_settings_outlined,
-        title: 'メンバー権限',
-        description: '管理者・中央銀行権限・モデレーターを設定。',
-      ),
-      _SettingsItem(
-        icon: Icons.notifications_active_outlined,
-        title: '通知ルール',
-        description: '承認待ちや重大トピックの通知を調整します。',
-      ),
-    ];
+    final communityName = _community?.name ?? 'コミュニティ';
+    const notificationMode = '@メンションのみ';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(
-          icon: Icons.settings_outlined,
-          title: 'コミュ設定',
-          color: _kTextSub,
+        const _SettingsSectionTitle('基本情報'),
+        const SizedBox(height: 8),
+        _SettingsListTile(
+          icon: Icons.edit_outlined,
+          title: 'コミュニティ名',
+          subtitle: communityName,
+          onTap: () => _showNotImplemented('コミュニティ名編集'),
         ),
-        const SizedBox(height: 16),
-        for (final item in settings)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _SectionCard(
-              leading: _RoundIcon(
-                icon: item.icon,
-                backgroundColor: const Color(0xFFF1F5F9),
-                foregroundColor: _kTextMain,
-              ),
-              title: Text(
-                item.title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: _kTextMain,
-                ),
-              ),
-              subtitle: Text(
-                item.description,
-                style: const TextStyle(fontSize: 13, color: _kTextSub),
-              ),
-              trailing: const Icon(Icons.chevron_right, color: _kTextSub),
-              onTap: () => _showNotImplemented(item.title),
-            ),
-          ),
+        const SizedBox(height: 12),
+        _SettingsListTile(
+          icon: Icons.photo_library_outlined,
+          title: 'アイコンとカバー',
+          subtitle: '変更',
+          onTap: () => _showNotImplemented('アイコンとカバー設定'),
+        ),
+        const SizedBox(height: 24),
+        const _SettingsSectionTitle('通知・表示'),
+        const SizedBox(height: 8),
+        _SettingsListTile(
+          icon: Icons.notifications_active_outlined,
+          title: '通知の既定',
+          subtitle: notificationMode,
+          onTap: () => _showNotImplemented('通知設定'),
+        ),
+        const SizedBox(height: 24),
+        const _SettingsSectionTitle('参加設定'),
+        const SizedBox(height: 8),
+        _SettingsToggleTile(
+          icon: Icons.verified_user_outlined,
+          title: '参加承認',
+          description: '参加に管理者の承認を必要とする',
+          value: _requireApprovalSetting,
+          onChanged: (value) => setState(() => _requireApprovalSetting = value),
+        ),
+        const SizedBox(height: 12),
+        _SettingsToggleTile(
+          icon: Icons.travel_explore_outlined,
+          title: '公開設定',
+          description: 'コミュニティを検索可能にする',
+          value: _isDiscoverableSetting,
+          onChanged: (value) => setState(() => _isDiscoverableSetting = value),
+        ),
+        const SizedBox(height: 24),
+        const _SettingsSectionTitle('Danger Zone'),
+        const SizedBox(height: 8),
+        _DangerZoneTile(
+          title: 'コミュニティから退出する',
+          description: 'この操作は元に戻せません。',
+          onTap: () => _showNotImplemented('コミュニティ退出'),
+        ),
+        const SizedBox(height: 12),
+        _DangerZoneTile(
+          title: 'コミュニティを削除する',
+          description: 'すべてのデータが完全に削除されます。',
+          onTap: () => _showNotImplemented('コミュニティ削除'),
+        ),
       ],
     );
   }
 
   Widget _buildBankSection(String currencyCode) {
-    const bankActions = [
-      _BankAction(
-        icon: Icons.payments_outlined,
-        title: '一括送金リクエスト',
-        description: '選択したメンバーへボーナスや報酬をまとめて送金。',
-      ),
-      _BankAction(
-        icon: Icons.lock_reset,
-        title: '残高調整 / 凍結',
-        description: '規約違反時の残高調整やウォレット凍結を実施。',
-      ),
-      _BankAction(
-        icon: Icons.bar_chart_outlined,
-        title: '経済インサイト',
-        description: '取引量や貯蓄額の推移を可視化します。',
-      ),
-    ];
+    final treasury = _community?.treasury;
+    final balance = treasury?.balance ?? 0;
+    final reserve = treasury?.initialGrant ?? 0;
+    final circulation = balance - reserve;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(
-          icon: Icons.account_balance_outlined,
-          title: 'バンク',
-          color: _kMainBlue,
+        _BankSummaryGrid(
+          balance: balance,
+          reserve: reserve,
+          currencyCode: currencyCode,
+          allowMinting: _community?.currency.allowMinting ?? true,
         ),
         const SizedBox(height: 16),
-        Text(
-          '通貨: $currencyCode',
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: _kTextSub,
-          ),
+        _BankPrimaryActions(
+          onMint: () => _showNotImplemented('Mint'),
+          onBurn: () => _showNotImplemented('Burn'),
         ),
-        const SizedBox(height: 12),
-        for (final action in bankActions)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _SectionCard(
-              leading: _RoundIcon(
-                icon: action.icon,
-                backgroundColor: const Color(0xFFEFF6FF),
-                foregroundColor: _kMainBlue,
-              ),
-              title: Text(
-                action.title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: _kTextMain,
-                ),
-              ),
-              subtitle: Text(
-                action.description,
-                style: const TextStyle(fontSize: 13, color: _kTextSub),
-              ),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: _kTextSub),
-              onTap: () => _showNotImplemented(action.title),
+        const SizedBox(height: 16),
+        _BankCurrencyList(
+          currencyCode: currencyCode,
+          currencyName: _community?.currency.name ?? '既定通貨',
+        ),
+        const SizedBox(height: 16),
+        _BankPolicyCard(
+          dualApprovalEnabled: _dualApprovalEnabled,
+          onToggleDualApproval: (value) =>
+              setState(() => _dualApprovalEnabled = value),
+          mintRolesLabel: 'Owner, BankAdmin',
+          dailyLimit: '100,000 $currencyCode',
+        ),
+        const SizedBox(height: 16),
+        _BankPermissionCard(
+          members: const [
+            _BankPermissionMember(
+              name: '田中',
+              role: 'Owner',
+              avatarUrl: null,
+              locked: true,
             ),
-          ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () => _showNotImplemented('バンクダッシュボード'),
-            icon: const Icon(Icons.account_balance),
-            label: const Text('中央銀行ダッシュボード'),
-          ),
+            _BankPermissionMember(
+              name: '鈴木',
+              role: 'BankAdmin',
+              avatarUrl: null,
+              locked: false,
+            ),
+          ],
+          onAddMember: () => _showNotImplemented('権限メンバー追加'),
+          onRemoveMember: (name) =>
+              _showNotImplemented('権限メンバー削除: $name'),
         ),
       ],
     );
@@ -563,6 +575,9 @@ class _CommunityMemberSelectScreenState
         setState(() {
           _community = community;
           _communityError = null;
+          _requireApprovalSetting = community.policy.requiresApproval;
+          _isDiscoverableSetting =
+              community.visibility.balanceMode != 'private';
         });
       } catch (e, stack) {
         debugPrint('Failed to parse community snapshot: $e\n$stack');
@@ -1140,58 +1155,62 @@ class _CommunityMemberSelectScreenState
   }
 
   Widget _buildFilterSection(ThemeData theme) {
+    final totalMembers = _members.length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              hintText: 'メンバーを検索',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: Colors.white,
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide.none,
-              ),
-            ),
+          _MembersApprovalCard(
+            pendingCount: _pendingCount,
+            onTap: _pendingCount > 0
+                ? () => _showNotImplemented('参加申請の承認')
+                : null,
           ),
           const SizedBox(height: 16),
+          _DashboardSearchField(
+            controller: _searchController,
+            hintText: 'メンバーを検索',
+          ),
+          const SizedBox(height: 12),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                for (final filter in MemberFilter.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(_filterLabel(filter)),
-                      selected: _activeFilter == filter,
-                      onSelected: (_) => _changeFilter(filter),
-                      selectedColor: _kMainBlue.withOpacity(0.12),
-                      backgroundColor: Colors.white,
-                      labelStyle: TextStyle(
-                        color: _activeFilter == filter
-                            ? _kMainBlue
-                            : _kTextSub,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
+                _MembersFilterChip(
+                  label: 'すべて ($totalMembers)',
+                  isActive: _activeFilter == MemberFilter.all,
+                  onTap: () => _changeFilter(MemberFilter.all),
+                ),
+                const SizedBox(width: 8),
+                _MembersFilterChip(
+                  label: '管理者',
+                  isActive: _activeFilter == MemberFilter.admin,
+                  onTap: () => _changeFilter(MemberFilter.admin),
+                ),
+                const SizedBox(width: 8),
+                _MembersFilterChip(
+                  label: '承認待ち',
+                  isActive: _activeFilter == MemberFilter.pending,
+                  onTap: () => _changeFilter(MemberFilter.pending),
+                ),
+                const SizedBox(width: 8),
+                _MembersFilterChip(
+                  label: _sortOption == MemberSortOption.recent
+                      ? '最近アクティブ'
+                      : '最近アクティブ',
+                  isActive: _sortOption == MemberSortOption.recent,
+                  onTap: () => _changeSort(MemberSortOption.recent),
+                ),
                 const SizedBox(width: 8),
                 PopupMenuButton<MemberSortOption>(
-                  tooltip: '表示順',
+                  tooltip: 'その他の並び替え',
                   onSelected: _changeSort,
                   itemBuilder: (context) => [
                     for (final option in MemberSortOption.values)
                       PopupMenuItem(
                         value: option,
                         child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             if (_sortOption == option)
                               const Icon(Icons.check, size: 18)
@@ -1204,8 +1223,8 @@ class _CommunityMemberSelectScreenState
                       ),
                   ],
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(999),
@@ -1214,7 +1233,7 @@ class _CommunityMemberSelectScreenState
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.sort, size: 18, color: _kTextSub),
+                        const Icon(Icons.tune, size: 18, color: _kTextSub),
                         const SizedBox(width: 6),
                         Text(
                           _sortLabel(_sortOption),
@@ -1686,70 +1705,6 @@ class _InfoPanel extends StatelessWidget {
   }
 }
 
-class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.leading,
-    required this.title,
-    this.subtitle,
-    this.trailing,
-    this.onTap,
-  });
-
-  final Widget leading;
-  final Widget title;
-  final Widget? subtitle;
-  final Widget? trailing;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(24),
-      child: Ink(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x11000000),
-              blurRadius: 12,
-              offset: Offset(0, 6),
-            ),
-          ],
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            leading,
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  title,
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 6),
-                    subtitle!,
-                  ],
-                ],
-              ),
-            ),
-            if (trailing != null) ...[
-              const SizedBox(width: 12),
-              Align(
-                alignment: Alignment.centerRight,
-                child: trailing!,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _RoundIcon extends StatelessWidget {
   const _RoundIcon({
     required this.icon,
@@ -1821,61 +1776,1801 @@ class _TalkTrailing extends StatelessWidget {
   }
 }
 
-class _TalkItem {
-  const _TalkItem({
-    required this.channel,
-    required this.snippet,
-    required this.timeLabel,
-    this.unreadCount,
+class _HighlightBanner extends StatelessWidget {
+  const _HighlightBanner({
+    required this.icon,
+    required this.backgroundColor,
+    required this.iconColor,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
   });
 
-  final String channel;
-  final String snippet;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color iconColor;
+  final Widget message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: iconColor.withOpacity(0.3)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: iconColor, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: message),
+          if (actionLabel != null && onAction != null)
+            TextButton(
+              onPressed: onAction,
+              style: TextButton.styleFrom(foregroundColor: iconColor),
+              child: Text(
+                actionLabel!,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashboardSearchField extends StatelessWidget {
+  const _DashboardSearchField({
+    this.controller,
+    required this.hintText,
+  });
+
+  final TextEditingController? controller;
+  final String hintText;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        hintText: hintText,
+        prefixIcon: const Icon(Icons.search),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding:
+            const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(24),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(24),
+          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(24),
+          borderSide: const BorderSide(color: _kMainBlue),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterChipConfig {
+  const _FilterChipConfig({
+    required this.label,
+    this.isPrimary = false,
+    this.trailingBadge,
+  });
+
+  final String label;
+  final bool isPrimary;
+  final String? trailingBadge;
+}
+
+class _ScrollableFilterRow extends StatelessWidget {
+  const _ScrollableFilterRow({
+    required this.filters,
+    this.onFilterTap,
+  });
+
+  final List<_FilterChipConfig> filters;
+  final ValueChanged<String>? onFilterTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final filter in filters)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: GestureDetector(
+                onTap: () => onFilterTap?.call(filter.label),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: filter.isPrimary ? _kMainBlue : Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: filter.isPrimary
+                          ? _kMainBlue
+                          : const Color(0xFFE2E8F0),
+                    ),
+                    boxShadow: filter.isPrimary
+                        ? const [
+                            BoxShadow(
+                              color: Color(0x19000000),
+                              blurRadius: 14,
+                              offset: Offset(0, 6),
+                            ),
+                          ]
+                        : const [],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        filter.label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color:
+                              filter.isPrimary ? Colors.white : _kTextMain,
+                        ),
+                      ),
+                      if (filter.trailingBadge != null) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: filter.isPrimary
+                                ? Colors.white.withOpacity(0.2)
+                                : _kAccentOrange,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            filter.trailingBadge!,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TalkChannelEntry {
+  const _TalkChannelEntry({
+    required this.title,
+    required this.subtitle,
+    required this.timeLabel,
+    this.unreadCount,
+    this.hasMention = false,
+    this.highlightColor,
+    this.borderColor,
+    this.highlightBadge,
+    this.mentionColor = _kMainBlue,
+    this.inlineIcon,
+    this.leadingIcon,
+    this.leadingLabel = '#',
+    this.leadingBackgroundColor = const Color(0xFFF1F5F9),
+    this.leadingForegroundColor = _kTextSub,
+  });
+
+  final String title;
+  final String subtitle;
   final String timeLabel;
   final int? unreadCount;
+  final bool hasMention;
+  final Color? highlightColor;
+  final Color? borderColor;
+  final String? highlightBadge;
+  final Color mentionColor;
+  final IconData? inlineIcon;
+  final IconData? leadingIcon;
+  final String leadingLabel;
+  final Color leadingBackgroundColor;
+  final Color leadingForegroundColor;
+}
+
+class _TalkChannelGroup extends StatelessWidget {
+  const _TalkChannelGroup({
+    required this.title,
+    required this.entries,
+    required this.onTapChannel,
+  });
+
+  final String title;
+  final List<_TalkChannelEntry> entries;
+  final ValueChanged<String> onTapChannel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: _kTextMain,
+            ),
+          ),
+        ),
+        for (final entry in entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _TalkChannelCard(
+              entry: entry,
+              onTap: () => onTapChannel(entry.title),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _TalkChannelCard extends StatelessWidget {
+  const _TalkChannelCard({
+    required this.entry,
+    required this.onTap,
+  });
+
+  final _TalkChannelEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final backgroundColor = entry.highlightColor ?? Colors.white;
+    final borderColor = entry.borderColor ?? Colors.transparent;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Ink(
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: borderColor),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0F000000),
+              blurRadius: 16,
+              offset: Offset(0, 8),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: entry.leadingBackgroundColor,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: entry.leadingIcon != null
+                  ? Icon(entry.leadingIcon, color: entry.leadingForegroundColor)
+                  : Center(
+                      child: Text(
+                        entry.leadingLabel,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: entry.leadingForegroundColor,
+                        ),
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      if (entry.inlineIcon != null) ...[
+                        Icon(entry.inlineIcon, size: 16, color: _kTextSub),
+                        const SizedBox(width: 6),
+                      ],
+                      Expanded(
+                        child: Text(
+                          entry.title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: _kTextMain,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    entry.subtitle,
+                    style: const TextStyle(fontSize: 13, color: _kTextSub),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  entry.timeLabel,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: _kTextSub,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (entry.hasMention || entry.highlightBadge != null) ...[
+                  const SizedBox(height: 8),
+                  _TalkBadge(
+                    label: entry.highlightBadge ?? '@',
+                    backgroundColor: entry.mentionColor,
+                  ),
+                ],
+                if (entry.unreadCount != null && entry.unreadCount! > 0) ...[
+                  const SizedBox(height: 8),
+                  _TalkBadge(
+                    label: entry.unreadCount!.toString(),
+                    backgroundColor: _kMainBlue,
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TalkBadge extends StatelessWidget {
+  const _TalkBadge({
+    required this.label,
+    required this.backgroundColor,
+  });
+
+  final String label;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
 }
 
 enum WalletActivityType { deposit, withdrawal }
 
-class _WalletItem {
-  const _WalletItem({
-    required this.title,
-    required this.counterparty,
+class _WalletQuickAction {
+  const _WalletQuickAction({
+    required this.icon,
+    required this.label,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color backgroundColor;
+  final Color foregroundColor;
+}
+
+class _WalletActionGrid extends StatelessWidget {
+  const _WalletActionGrid({
+    required this.actions,
+    required this.onTap,
+  });
+
+  final List<_WalletQuickAction> actions;
+  final ValueChanged<String> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < actions.length; i++)
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: i == actions.length - 1 ? 0 : 12),
+              child: _WalletActionButton(
+                action: actions[i],
+                onTap: () => onTap(actions[i].label),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _WalletActionButton extends StatelessWidget {
+  const _WalletActionButton({
+    required this.action,
+    required this.onTap,
+  });
+
+  final _WalletQuickAction action;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x11000000),
+              blurRadius: 12,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: action.backgroundColor,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(action.icon, color: action.foregroundColor),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              action.label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: _kTextMain,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WalletBalanceCard extends StatelessWidget {
+  const _WalletBalanceCard({
+    required this.currencyCode,
+    required this.balance,
+    required this.monthlyInflow,
+    required this.monthlyOutflow,
+    required this.pendingCount,
+  });
+
+  final String currencyCode;
+  final num balance;
+  final num monthlyInflow;
+  final num monthlyOutflow;
+  final int pendingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: _kMainBlue,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x332563EB),
+            blurRadius: 18,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '現在の残高 ($currencyCode)',
+            style: const TextStyle(color: Colors.white70, fontSize: 13),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            balance.toStringAsFixed(0),
+            style: const TextStyle(
+              fontSize: 36,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '今月の入金',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '+${monthlyInflow.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '今月の出金',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '-${monthlyOutflow.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '保留: $pendingCount件',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WalletApprovalCard extends StatelessWidget {
+  const _WalletApprovalCard({
+    required this.requester,
     required this.amount,
-    required this.timeLabel,
+    required this.currencyCode,
+    required this.memo,
+    required this.onApprove,
+    required this.onReject,
+  });
+
+  final String requester;
+  final num amount;
+  final String currencyCode;
+  final String memo;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: _kAccentOrange.withOpacity(0.5)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: _kAccentOrange.withOpacity(0.1),
+                child: Text(
+                  requester.characters.first,
+                  style: const TextStyle(
+                    color: _kAccentOrange,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$requesterからの請求',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _kTextMain,
+                      ),
+                    ),
+                    Text(
+                      'メモ: $memo',
+                      style: const TextStyle(fontSize: 12, color: _kTextSub),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${amount.toStringAsFixed(0)} $currencyCode',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: _kTextMain,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onReject,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _kTextSub,
+                    side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text('却下'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: onApprove,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _kAccentOrange,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text('承認'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WalletTransaction {
+  const _WalletTransaction({
+    required this.title,
+    required this.subtitle,
+    required this.amount,
     required this.type,
   });
 
   final String title;
-  final String counterparty;
-  final double amount;
-  final String timeLabel;
+  final String subtitle;
+  final num amount;
   final WalletActivityType type;
 }
 
-class _SettingsItem {
-  const _SettingsItem({
+class _WalletTransactionList extends StatelessWidget {
+  const _WalletTransactionList({
+    required this.transactions,
+    required this.currencyCode,
+    required this.onViewAll,
+  });
+
+  final List<_WalletTransaction> transactions;
+  final String currencyCode;
+  final VoidCallback onViewAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              '最近の取引',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: _kTextMain,
+              ),
+            ),
+            TextButton(
+              onPressed: onViewAll,
+              child: const Text('すべて表示'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x11000000),
+                blurRadius: 14,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              for (var i = 0; i < transactions.length; i++)
+                _WalletTransactionTile(
+                  transaction: transactions[i],
+                  currencyCode: currencyCode,
+                  showDivider: i != transactions.length - 1,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _WalletTransactionTile extends StatelessWidget {
+  const _WalletTransactionTile({
+    required this.transaction,
+    required this.currencyCode,
+    required this.showDivider,
+  });
+
+  final _WalletTransaction transaction;
+  final String currencyCode;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDeposit = transaction.type == WalletActivityType.deposit;
+    final amountPrefix = isDeposit ? '+' : '-';
+    final amountColor = isDeposit ? _kSubGreen : const Color(0xFFDC2626);
+    final icon = isDeposit ? Icons.south_west : Icons.north_east;
+    final iconBackground =
+        isDeposit ? _kSubGreen.withOpacity(0.12) : const Color(0xFFFFE4E6);
+    final iconColor = isDeposit ? _kSubGreen : const Color(0xFFDC2626);
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: iconBackground,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: iconColor),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      transaction.title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _kTextMain,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      transaction.subtitle,
+                      style: const TextStyle(fontSize: 12, color: _kTextSub),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                '$amountPrefix${transaction.amount.toStringAsFixed(0)} $currencyCode',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: amountColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (showDivider)
+          const Divider(
+            height: 1,
+            color: Color(0xFFE2E8F0),
+            indent: 16,
+            endIndent: 16,
+          ),
+      ],
+    );
+  }
+}
+
+class _MembersApprovalCard extends StatelessWidget {
+  const _MembersApprovalCard({
+    required this.pendingCount,
+    this.onTap,
+  });
+
+  final int pendingCount;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x11000000),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: _kAccentOrange.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(Icons.how_to_reg, color: _kAccentOrange),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '参加申請の承認',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextMain,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '新しい申請を確認しましょう',
+                  style: TextStyle(fontSize: 12, color: _kTextSub),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: _kTextSub),
+        ],
+      ),
+    );
+
+    final badge = pendingCount > 0
+        ? Positioned(
+            right: 12,
+            top: 12,
+            child: Container(
+              width: 22,
+              height: 22,
+              decoration: const BoxDecoration(
+                color: _kAccentOrange,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                pendingCount.toString(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          )
+        : null;
+
+    final card = onTap != null
+        ? InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(22),
+            child: content,
+          )
+        : content;
+
+    return Stack(
+      children: [
+        card,
+        if (badge != null) badge,
+      ],
+    );
+  }
+}
+
+class _MembersFilterChip extends StatelessWidget {
+  const _MembersFilterChip({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isActive ? _kMainBlue : Colors.white,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: isActive ? _kMainBlue : const Color(0xFFE2E8F0),
+          ),
+          boxShadow: isActive
+              ? const [
+                  BoxShadow(
+                    color: Color(0x1A000000),
+                    blurRadius: 12,
+                    offset: Offset(0, 6),
+                  ),
+                ]
+              : const [],
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: isActive ? Colors.white : _kTextMain,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSectionTitle extends StatelessWidget {
+  const _SettingsSectionTitle(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        color: _kTextSub,
+      ),
+    );
+  }
+}
+
+class _SettingsListTile extends StatelessWidget {
+  const _SettingsListTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0F000000),
+              blurRadius: 14,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _kMainBlue.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: _kMainBlue),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: _kTextMain,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(fontSize: 12, color: _kTextSub),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: _kTextSub),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsToggleTile extends StatelessWidget {
+  const _SettingsToggleTile({
     required this.icon,
     required this.title,
     required this.description,
+    required this.value,
+    required this.onChanged,
   });
 
   final IconData icon;
   final String title;
   final String description;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x11000000),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: _kAccentOrange.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: _kAccentOrange),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: _kTextMain,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  description,
+                  style: const TextStyle(fontSize: 12, color: _kTextSub),
+                ),
+              ],
+            ),
+          ),
+          Switch.adaptive(value: value, onChanged: onChanged),
+        ],
+      ),
+    );
+  }
 }
 
-class _BankAction {
-  const _BankAction({
-    required this.icon,
+class _DangerZoneTile extends StatelessWidget {
+  const _DangerZoneTile({
     required this.title,
     required this.description,
+    required this.onTap,
   });
 
-  final IconData icon;
   final String title;
   final String description;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Ink(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: const Color(0x33DC2626)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFDC2626),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              description,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFFDC2626),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
+
+class _BankSummaryGrid extends StatelessWidget {
+  const _BankSummaryGrid({
+    required this.balance,
+    required this.reserve,
+    required this.currencyCode,
+    required this.allowMinting,
+  });
+
+  final num balance;
+  final num reserve;
+  final String currencyCode;
+  final bool allowMinting;
+
+  @override
+  Widget build(BuildContext context) {
+    final circulation = balance - reserve;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 480;
+        final cards = [
+          _BankSummaryCard(
+            title: '発行残高 ($currencyCode)',
+            value: balance.toStringAsFixed(0),
+            subtitle:
+                '流通: ${circulation.toStringAsFixed(0)} / 予備: ${reserve.toStringAsFixed(0)}',
+          ),
+          _BankSummaryCard(
+            title: 'システムステータス',
+            value: allowMinting ? '稼働中' : '一時停止',
+            subtitle:
+                allowMinting ? '台帳検算: 正常 · アラート: 0件' : '発行は停止中です',
+          ),
+        ];
+        if (isWide) {
+          return Row(
+            children: [
+              for (final card in cards)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: card,
+                  ),
+                ),
+            ],
+          );
+        }
+        return Column(
+          children: [
+            for (final card in cards)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: card,
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _BankSummaryCard extends StatelessWidget {
+  const _BankSummaryCard({
+    required this.title,
+    required this.value,
+    required this.subtitle,
+  });
+
+  final String title;
+  final String value;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: _kTextSub,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: _kTextMain,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: const TextStyle(fontSize: 12, color: _kTextSub),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BankPrimaryActions extends StatelessWidget {
+  const _BankPrimaryActions({
+    required this.onMint,
+    required this.onBurn,
+  });
+
+  final VoidCallback onMint;
+  final VoidCallback onBurn;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: ElevatedButton(
+            onPressed: onMint,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _kMainBlue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: const Text('発行 (Mint)'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: OutlinedButton(
+            onPressed: onBurn,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFDC2626),
+              side: const BorderSide(color: Color(0x33DC2626)),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+            ),
+            child: const Text('回収 (Burn)'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BankCurrencyList extends StatelessWidget {
+  const _BankCurrencyList({
+    required this.currencyCode,
+    required this.currencyName,
+  });
+
+  final String currencyCode;
+  final String currencyName;
+
+  @override
+  Widget build(BuildContext context) {
+    final currencies = [
+      _BankCurrencyTile(
+        code: currencyCode,
+        description: currencyName,
+        statusLabel: '既定通貨',
+        statusColor: _kSubGreen,
+        disabled: false,
+      ),
+      const _BankCurrencyTile(
+        code: 'TICKET',
+        description: 'イベント参加用の使い捨てチケット',
+        statusLabel: '無効',
+        statusColor: Color(0xFFDC2626),
+        disabled: true,
+      ),
+    ];
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '通貨一覧',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _kTextMain,
+                ),
+              ),
+              TextButton(
+                onPressed: () {},
+                child: const Text('通貨を追加'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final currency in currencies)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: currency,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BankCurrencyTile extends StatelessWidget {
+  const _BankCurrencyTile({
+    required this.code,
+    required this.description,
+    required this.statusLabel,
+    required this.statusColor,
+    required this.disabled,
+  });
+
+  final String code;
+  final String description;
+  final String statusLabel;
+  final Color statusColor;
+  final bool disabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = disabled ? _kTextSub.withOpacity(0.6) : _kTextMain;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: disabled ? const Color(0xFFF8FAFC) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      code,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        statusLabel,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  description,
+                  style: TextStyle(fontSize: 12, color: textColor),
+                ),
+              ],
+            ),
+          ),
+          const Icon(Icons.edit_outlined, color: _kTextSub),
+        ],
+      ),
+    );
+  }
+}
+
+class _BankPolicyCard extends StatelessWidget {
+  const _BankPolicyCard({
+    required this.dualApprovalEnabled,
+    required this.onToggleDualApproval,
+    required this.mintRolesLabel,
+    required this.dailyLimit,
+  });
+
+  final bool dualApprovalEnabled;
+  final ValueChanged<bool> onToggleDualApproval;
+  final String mintRolesLabel;
+  final String dailyLimit;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'ポリシー設定',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: _kTextMain,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('二重承認'),
+              Switch.adaptive(
+                value: dualApprovalEnabled,
+                onChanged: onToggleDualApproval,
+              ),
+            ],
+          ),
+          const Divider(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('発行権限ロール'),
+              Text(
+                mintRolesLabel,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: _kTextMain,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('日次総発行上限'),
+              Text(
+                dailyLimit,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: _kTextMain,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BankPermissionMember {
+  const _BankPermissionMember({
+    required this.name,
+    required this.role,
+    this.avatarUrl,
+    this.locked = false,
+  });
+
+  final String name;
+  final String role;
+  final String? avatarUrl;
+  final bool locked;
+}
+
+class _BankPermissionCard extends StatelessWidget {
+  const _BankPermissionCard({
+    required this.members,
+    required this.onAddMember,
+    required this.onRemoveMember,
+  });
+
+  final List<_BankPermissionMember> members;
+  final VoidCallback onAddMember;
+  final ValueChanged<String> onRemoveMember;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '権限とメンバー',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _kTextMain,
+                ),
+              ),
+              TextButton(
+                onPressed: onAddMember,
+                child: const Text('メンバーを追加'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          for (final member in members)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _BankPermissionTile(
+                member: member,
+                onRemove: onRemoveMember,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BankPermissionTile extends StatelessWidget {
+  const _BankPermissionTile({
+    required this.member,
+    required this.onRemove,
+  });
+
+  final _BankPermissionMember member;
+  final ValueChanged<String> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 22,
+            backgroundColor: _kMainBlue.withOpacity(0.1),
+            backgroundImage:
+                member.avatarUrl != null ? NetworkImage(member.avatarUrl!) : null,
+            child: member.avatarUrl == null
+                ? Text(
+                    member.name.characters.first,
+                    style: const TextStyle(
+                      color: _kMainBlue,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  member.name,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: _kTextMain,
+                  ),
+                ),
+                Text(
+                  member.role,
+                  style: const TextStyle(fontSize: 12, color: _kTextSub),
+                ),
+              ],
+            ),
+          ),
+          if (member.locked)
+            const Text(
+              '変更不可',
+              style: TextStyle(fontSize: 12, color: _kTextSub),
+            )
+          else
+            TextButton(
+              onPressed: () => onRemove(member.name),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
+              child: const Text('解除'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 
 class _DashboardTabBar extends StatelessWidget {
   const _DashboardTabBar({
