@@ -208,36 +208,144 @@ class _CommunityMemberSelectScreenState
     final selectionText = selectedCount > 0
         ? '選択中: $selectedCount人 · 合計残高 ${selectedBalance.toStringAsFixed(2)} $currencyCode'
         : 'まだメンバーは選択されていません。';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionTitle(
-          icon: Icons.dashboard_customize_outlined,
-          title: 'コミュニティ概要',
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x11000000),
+                blurRadius: 18,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'コミュニティ概要',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: _kTextMain,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                '最新のメンバー状況とアクティビティを確認しましょう。',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _kTextSub,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _OverviewStatPill(
+                    icon: Icons.groups,
+                    label: 'メンバー',
+                    value: '$totalMembers人',
+                    color: _kMainBlue,
+                  ),
+                  _OverviewStatPill(
+                    icon: Icons.account_balance,
+                    label: '中央銀行権限',
+                    value: '${_bankManagerCount}人',
+                    color: _kSubGreen,
+                  ),
+                  _OverviewStatPill(
+                    icon: Icons.pending_actions,
+                    label: '承認待ち',
+                    value: '$pendingCount件',
+                    color: _kAccentOrange,
+                  ),
+                  _OverviewStatPill(
+                    icon: Icons.family_restroom,
+                    label: '未成年',
+                    value: '$minorCount人',
+                    color: const Color(0xFF9333EA),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Container(
+                decoration: BoxDecoration(
+                  color: _kBgLight,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 44,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: _kMainBlue.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.calendar_month,
+                            color: _kMainBlue,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            '今月のまとめ',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: _kTextMain,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'メンバー総数: ${totalMembers}人',
+                      style: const TextStyle(fontSize: 13, color: _kTextMain),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '中央銀行権限: ${_bankManagerCount}人 · 未成年: ${minorCount}人',
+                      style: const TextStyle(fontSize: 13, color: _kTextMain),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      selectionText,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color:
+                            selectedCount > 0 ? _kMainBlue : _kTextSub,
+                        fontWeight: selectedCount > 0
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 16),
-        _OverviewCards(
-          totalMembers: totalMembers,
-          pendingCount: pendingCount,
-          bankManagerCount: _bankManagerCount,
-          minorCount: minorCount,
-        ),
-        const SizedBox(height: 20),
-        _InfoPanel(
-          icon: Icons.calendar_month,
-          title: '今月のまとめ',
-          lines: [
-            'メンバー総数: ${totalMembers}人',
-            selectionText,
-            '中央銀行権限: ${_bankManagerCount}人 · 未成年: ${minorCount}人',
-          ],
-        ),
-        const SizedBox(height: 16),
-        _InfoPanel(
+        _OverviewInsightCard(
           icon: Icons.pending_actions,
-          iconColor: _kAccentOrange,
-          backgroundColor: _kAccentOrange.withOpacity(0.12),
           title: '承認待ちステータス',
+          accentColor: _kAccentOrange,
+          backgroundColor: _kAccentOrange.withOpacity(0.12),
           lines: [
             if (pendingCount > 0)
               '承認待ちリクエストが${pendingCount}件あります。'
@@ -246,16 +354,15 @@ class _CommunityMemberSelectScreenState
             '承認キューからレビューや承認を実行できます。',
           ],
           actionLabel: pendingCount > 0 ? 'キューを開く' : null,
-          onAction: pendingCount > 0
-              ? () => _showNotImplemented('承認キュー')
-              : null,
+          onAction:
+              pendingCount > 0 ? () => _showNotImplemented('承認キュー') : null,
         ),
         const SizedBox(height: 16),
-        _InfoPanel(
+        _OverviewInsightCard(
           icon: Icons.timeline,
-          iconColor: _kSubGreen,
-          backgroundColor: _kSubGreen.withOpacity(0.12),
           title: '最近のトーク / 取引',
+          accentColor: _kSubGreen,
+          backgroundColor: _kSubGreen.withOpacity(0.12),
           lines: const [
             '最新のトピックや取引の概要を下のタブから確認できます。',
             '詳しく見るには「トーク」「ウォレット」タブをタップしてください。',
@@ -1028,6 +1135,7 @@ class _CommunityMemberSelectScreenState
                     pinned: true,
                     delegate: _PinnedTabHeaderDelegate(
                       activeTab: _activeDashboardTab,
+                      communityName: communityName,
                       onSelected: _handleDashboardTabSelected,
                     ),
                   ),
@@ -1348,7 +1456,7 @@ class _HeaderSection extends StatelessWidget {
           Stack(
             children: [
               Container(
-                height: 160,
+                height: 132,
                 width: double.infinity,
                 decoration: BoxDecoration(
                   color: const Color(0xFFE2E8F0),
@@ -1362,9 +1470,9 @@ class _HeaderSection extends StatelessWidget {
                 child: Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Colors.transparent, Colors.black45],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [Color(0xBF000000), Colors.transparent],
                     ),
                   ),
                 ),
@@ -1374,7 +1482,7 @@ class _HeaderSection extends StatelessWidget {
                 left: 12,
                 child: IconButton.filled(
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.black26,
+                    backgroundColor: Colors.black38,
                     foregroundColor: Colors.white,
                   ),
                   onPressed: () => Navigator.of(context).maybePop(),
@@ -1384,7 +1492,7 @@ class _HeaderSection extends StatelessWidget {
             ],
           ),
           Container(
-            transform: Matrix4.translationValues(0, -48, 0),
+            transform: Matrix4.translationValues(0, -40, 0),
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Column(
               children: [
@@ -1393,13 +1501,13 @@ class _HeaderSection extends StatelessWidget {
                   height: 96,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(28),
                     border: Border.all(color: Colors.white, width: 4),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x33000000),
-                        blurRadius: 12,
-                        offset: Offset(0, 6),
+                        blurRadius: 18,
+                        offset: Offset(0, 10),
                       ),
                     ],
                   ),
@@ -1414,7 +1522,7 @@ class _HeaderSection extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 14),
                 Text(
                   community?.name ?? communityNameFallback,
                   style: const TextStyle(
@@ -1430,44 +1538,35 @@ class _HeaderSection extends StatelessWidget {
                   children: [
                     Text(
                       'メンバー $memberCount人',
-                      style: const TextStyle(color: _kTextSub),
+                      style:
+                          const TextStyle(color: _kTextSub, fontSize: 13),
                     ),
                     const SizedBox(width: 8),
                     const Text('·', style: TextStyle(color: _kTextSub)),
                     const SizedBox(width: 8),
-                    Text('役割: $roleLabel',
-                        style: const TextStyle(color: _kTextSub)),
+                    Text(
+                      '役割: $roleLabel',
+                      style:
+                          const TextStyle(color: _kTextSub, fontSize: 13),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
+                  runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
-                    Chip(
-                      backgroundColor: _kMainBlue.withOpacity(0.1),
-                      label: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.monetization_on,
-                              size: 16, color: _kMainBlue),
-                          const SizedBox(width: 6),
-                          Text('$currency 通貨'),
-                        ],
-                      ),
+                    _HeaderChip(
+                      icon: Icons.monetization_on,
+                      label: '$currency 独自通貨',
+                      color: _kMainBlue,
                     ),
                     if (pendingCount > 0)
-                      Chip(
-                        backgroundColor: _kAccentOrange.withOpacity(0.12),
-                        label: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.pending_actions,
-                                size: 16, color: _kAccentOrange),
-                            const SizedBox(width: 6),
-                            Text('承認待ち $pendingCount件'),
-                          ],
-                        ),
+                      _HeaderChip(
+                        icon: Icons.pending_actions,
+                        label: '承認待ち $pendingCount件',
+                        color: _kAccentOrange,
                       ),
                   ],
                 ),
@@ -1475,23 +1574,26 @@ class _HeaderSection extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    FilledButton.icon(
-                      icon: const Icon(Icons.person_add),
+                    FilledButton(
                       onPressed: () {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('招待リンクの共有は近日対応予定です。')),
+                          const SnackBar(
+                            content: Text('招待リンクの共有は近日対応予定です。'),
+                          ),
                         );
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: _kMainBlue,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
+                          horizontal: 32,
                           vertical: 12,
                         ),
                         shape: const StadiumBorder(),
+                        textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                        elevation: 3,
                       ),
-                      label: const Text('メンバーを招待'),
+                      child: const Text('招待する'),
                     ),
                     const SizedBox(width: 12),
                     _HeaderIconButton(
@@ -1510,7 +1612,8 @@ class _HeaderSection extends StatelessWidget {
                       onTap: () {
                         Scrollable.ensureVisible(
                           context,
-                          duration: const Duration(milliseconds: 300),
+                          duration: const Duration(milliseconds: 320),
+                          curve: Curves.easeInOut,
                         );
                       },
                     ),
@@ -1574,60 +1677,133 @@ class _HeaderIconButton extends StatelessWidget {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({
+class _HeaderChip extends StatelessWidget {
+  const _HeaderChip({
     required this.icon,
-    required this.title,
-    this.color = _kMainBlue,
+    required this.label,
+    required this.color,
   });
 
   final IconData icon;
-  final String title;
+  final String label;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.14),
-            borderRadius: BorderRadius.circular(14),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
           ),
-          child: Icon(icon, color: color),
-        ),
-        const SizedBox(width: 12),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: _kTextMain,
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-class _InfoPanel extends StatelessWidget {
-  const _InfoPanel({
+class _OverviewStatPill extends StatelessWidget {
+  const _OverviewStatPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 148),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withOpacity(0.18)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A000000),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _kTextSub,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _kTextMain,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewInsightCard extends StatelessWidget {
+  const _OverviewInsightCard({
     required this.icon,
     required this.title,
+    required this.accentColor,
+    required this.backgroundColor,
     required this.lines,
-    this.iconColor = _kMainBlue,
-    this.backgroundColor = Colors.white,
     this.actionLabel,
     this.onAction,
   });
 
   final IconData icon;
   final String title;
-  final List<String> lines;
-  final Color iconColor;
+  final Color accentColor;
   final Color backgroundColor;
+  final List<String> lines;
   final String? actionLabel;
   final VoidCallback? onAction;
 
@@ -1636,47 +1812,57 @@ class _InfoPanel extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: backgroundColor,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: accentColor.withOpacity(0.3)),
       ),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Container(
-                width: 36,
-                height: 36,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x12000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
                 ),
-                child: Icon(icon, color: iconColor),
+                child: Icon(icon, color: accentColor),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   title,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: FontWeight.w700,
                     color: _kTextMain,
                   ),
                 ),
               ),
+              if (actionLabel != null && onAction != null)
+                TextButton(
+                  onPressed: onAction,
+                  style: TextButton.styleFrom(
+                    foregroundColor: accentColor,
+                    textStyle: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  child: Text(actionLabel!),
+                ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           for (var i = 0; i < lines.length; i++)
             Padding(
-              padding: EdgeInsets.only(bottom: i == lines.length - 1 ? 0 : 8),
+              padding: EdgeInsets.only(bottom: i == lines.length - 1 ? 0 : 6),
               child: Text(
                 lines[i],
                 style: const TextStyle(
@@ -1686,19 +1872,6 @@ class _InfoPanel extends StatelessWidget {
                 ),
               ),
             ),
-          if (actionLabel != null && onAction != null) ...[
-            const SizedBox(height: 16),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: onAction,
-                style: TextButton.styleFrom(
-                  foregroundColor: iconColor,
-                ),
-                child: Text(actionLabel!),
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -1897,45 +2070,35 @@ class _ScrollableFilterRow extends StatelessWidget {
           for (final filter in filters)
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: GestureDetector(
-                onTap: () => onFilterTap?.call(filter.label),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: filter.isPrimary ? _kMainBlue : Colors.white,
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: filter.isPrimary
-                          ? _kMainBlue
-                          : const Color(0xFFE2E8F0),
+          child: GestureDetector(
+            onTap: () => onFilterTap?.call(filter.label),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                color: filter.isPrimary ? _kMainBlue : Colors.white,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: filter.isPrimary
+                      ? _kMainBlue
+                      : const Color(0xFFE2E8F0),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    filter.label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: filter.isPrimary ? Colors.white : _kTextMain,
                     ),
-                    boxShadow: filter.isPrimary
-                        ? const [
-                            BoxShadow(
-                              color: Color(0x19000000),
-                              blurRadius: 14,
-                              offset: Offset(0, 6),
-                            ),
-                          ]
-                        : const [],
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        filter.label,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color:
-                              filter.isPrimary ? Colors.white : _kTextMain,
-                        ),
-                      ),
-                      if (filter.trailingBadge != null) ...[
-                        const SizedBox(width: 8),
+                  if (filter.trailingBadge != null) ...[
+                    const SizedBox(width: 8),
                         Container(
                           width: 20,
                           height: 20,
@@ -2053,7 +2216,10 @@ class _TalkChannelCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final backgroundColor = entry.highlightColor ?? Colors.white;
-    final borderColor = entry.borderColor ?? Colors.transparent;
+    final borderColor = entry.borderColor ??
+        (entry.highlightColor != null
+            ? entry.highlightColor!.withOpacity(0.4)
+            : const Color(0xFFE2E8F0));
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
@@ -2064,9 +2230,9 @@ class _TalkChannelCard extends StatelessWidget {
           border: Border.all(color: borderColor),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x0F000000),
-              blurRadius: 16,
-              offset: Offset(0, 8),
+              color: Color(0x0A000000),
+              blurRadius: 14,
+              offset: Offset(0, 6),
             ),
           ],
         ),
@@ -2687,9 +2853,10 @@ class _MembersApprovalCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x11000000),
+            color: Color(0x0A000000),
             blurRadius: 12,
             offset: Offset(0, 6),
           ),
@@ -2708,11 +2875,11 @@ class _MembersApprovalCard extends StatelessWidget {
             child: const Icon(Icons.how_to_reg, color: _kAccentOrange),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   '参加申請の承認',
                   style: TextStyle(
                     fontSize: 16,
@@ -2720,10 +2887,12 @@ class _MembersApprovalCard extends StatelessWidget {
                     color: _kTextMain,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
-                  '新しい申請を確認しましょう',
-                  style: TextStyle(fontSize: 12, color: _kTextSub),
+                  pendingCount > 0
+                      ? '新しい申請が${pendingCount}件あります'
+                      : '最新の申請状況を確認しましょう',
+                  style: const TextStyle(fontSize: 12, color: _kTextSub),
                 ),
               ],
             ),
@@ -2790,22 +2959,13 @@ class _MembersFilterChip extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           color: isActive ? _kMainBlue : Colors.white,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
             color: isActive ? _kMainBlue : const Color(0xFFE2E8F0),
           ),
-          boxShadow: isActive
-              ? const [
-                  BoxShadow(
-                    color: Color(0x1A000000),
-                    blurRadius: 12,
-                    offset: Offset(0, 6),
-                  ),
-                ]
-              : const [],
         ),
         child: Text(
           label,
@@ -2860,13 +3020,7 @@ class _SettingsListTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0F000000),
-              blurRadius: 14,
-              offset: Offset(0, 6),
-            ),
-          ],
+          border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
         child: Row(
           children: [
@@ -2931,13 +3085,7 @@ class _SettingsToggleTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x11000000),
-            blurRadius: 12,
-            offset: Offset(0, 6),
-          ),
-        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: Row(
         children: [
@@ -2971,7 +3119,14 @@ class _SettingsToggleTile extends StatelessWidget {
               ],
             ),
           ),
-          Switch.adaptive(value: value, onChanged: onChanged),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: Colors.white,
+            activeTrackColor: _kSubGreen,
+            inactiveThumbColor: Colors.white,
+            inactiveTrackColor: const Color(0xFFE2E8F0),
+          ),
         ],
       ),
     );
@@ -3104,13 +3259,7 @@ class _BankSummaryCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -3222,13 +3371,7 @@ class _BankCurrencyList extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -3359,13 +3502,7 @@ class _BankPolicyCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -3384,9 +3521,13 @@ class _BankPolicyCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('二重承認'),
-              Switch.adaptive(
+              Switch(
                 value: dualApprovalEnabled,
                 onChanged: onToggleDualApproval,
+                activeColor: Colors.white,
+                activeTrackColor: _kSubGreen,
+                inactiveThumbColor: Colors.white,
+                inactiveTrackColor: const Color(0xFFE2E8F0),
               ),
             ],
           ),
@@ -3455,13 +3596,7 @@ class _BankPermissionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(22),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 16,
-            offset: Offset(0, 8),
-          ),
-        ],
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -3583,23 +3718,29 @@ class _DashboardTabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tabs = _CommunityDashboardTab.values;
     return SafeArea(
       bottom: false,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            for (final tab in _CommunityDashboardTab.values)
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: _DashboardTabButton(
-                  tab: tab,
-                  isActive: activeTab == tab,
-                  onTap: () => onSelected(tab),
+      child: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var i = 0; i < tabs.length; i++) ...[
+                _DashboardTabButton(
+                  tab: tabs[i],
+                  isActive: activeTab == tabs[i],
+                  onTap: () => onSelected(tabs[i]),
                 ),
-              ),
-          ],
+                if (i != tabs.length - 1) const SizedBox(width: 12),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -3619,45 +3760,29 @@ class _DashboardTabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: isActive ? _kMainBlue : Colors.white,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: isActive ? _kMainBlue : const Color(0xFFE2E8F0),
+          border: Border(
+            bottom: BorderSide(
+              color: isActive ? _kMainBlue : Colors.transparent,
+              width: 2,
+            ),
           ),
-          boxShadow: isActive
-              ? const [
-                  BoxShadow(
-                    color: Color(0x22000000),
-                    blurRadius: 14,
-                    offset: Offset(0, 6),
-                  ),
-                ]
-              : const [],
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              tab.icon,
-              size: 18,
-              color: isActive ? Colors.white : _kTextSub,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              tab.label,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: isActive ? FontWeight.bold : FontWeight.w600,
-                color: isActive ? Colors.white : _kTextMain,
-              ),
-            ),
-          ],
+        child: Text(
+          tab.label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+            color: isActive ? _kMainBlue : _kTextSub,
+            letterSpacing: 0.2,
+          ),
         ),
       ),
     );
@@ -3667,17 +3792,19 @@ class _DashboardTabButton extends StatelessWidget {
 class _PinnedTabHeaderDelegate extends SliverPersistentHeaderDelegate {
   _PinnedTabHeaderDelegate({
     required this.activeTab,
+    required this.communityName,
     required this.onSelected,
   });
 
   final _CommunityDashboardTab activeTab;
+  final String communityName;
   final ValueChanged<_CommunityDashboardTab> onSelected;
 
   @override
-  double get minExtent => 68;
+  double get minExtent => 104;
 
   @override
-  double get maxExtent => 68;
+  double get maxExtent => 104;
 
   @override
   Widget build(
@@ -3685,6 +3812,7 @@ class _PinnedTabHeaderDelegate extends SliverPersistentHeaderDelegate {
     double shrinkOffset,
     bool overlapsContent,
   ) {
+    final showCompactHeader = shrinkOffset > 4;
     return SizedBox(
       height: maxExtent,
       width: double.infinity,
@@ -3695,15 +3823,44 @@ class _PinnedTabHeaderDelegate extends SliverPersistentHeaderDelegate {
               ? const [
                   BoxShadow(
                     color: Color(0x1A000000),
-                    blurRadius: 12,
+                    blurRadius: 14,
                     offset: Offset(0, 6),
                   ),
                 ]
               : const [],
         ),
-        child: _DashboardTabBar(
-          activeTab: activeTab,
-          onSelected: onSelected,
+        child: Column(
+          children: [
+            SizedBox(
+              height: 44,
+              child: IgnorePointer(
+                ignoring: !showCompactHeader,
+                child: AnimatedOpacity(
+                  opacity: showCompactHeader ? 1 : 0,
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  child: Center(
+                    child: Text(
+                      communityName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: _kTextMain,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFE2E8F0)),
+            Expanded(
+              child: _DashboardTabBar(
+                activeTab: activeTab,
+                onSelected: onSelected,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -3711,151 +3868,11 @@ class _PinnedTabHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   bool shouldRebuild(covariant _PinnedTabHeaderDelegate oldDelegate) {
-    return oldDelegate.activeTab != activeTab;
+    return oldDelegate.activeTab != activeTab ||
+        oldDelegate.communityName != communityName;
   }
 }
 
-
-class _OverviewCards extends StatelessWidget {
-  const _OverviewCards({
-    required this.totalMembers,
-    required this.pendingCount,
-    required this.bankManagerCount,
-    required this.minorCount,
-  });
-
-  final int totalMembers;
-  final int pendingCount;
-  final int bankManagerCount;
-  final int minorCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isWide = constraints.maxWidth > 480;
-        final children = [
-          _OverviewTile(
-            title: '合計メンバー',
-            value: '$totalMembers人',
-            icon: Icons.groups,
-            color: _kMainBlue,
-          ),
-          _OverviewTile(
-            title: '承認待ち',
-            value: '$pendingCount件',
-            icon: Icons.pending_actions,
-            color: _kAccentOrange,
-          ),
-          _OverviewTile(
-            title: '中央銀行権限',
-            value: '$bankManagerCount人',
-            icon: Icons.account_balance,
-            color: _kSubGreen,
-          ),
-          _OverviewTile(
-            title: '未成年メンバー',
-            value: '$minorCount人',
-            icon: Icons.family_restroom,
-            color: Colors.purple,
-          ),
-        ];
-        if (isWide) {
-          return Row(
-            children: [
-              for (final child in children)
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: child,
-                  ),
-                ),
-            ],
-          );
-        }
-        return Column(
-          children: [
-            for (final child in children)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: child,
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _OverviewTile extends StatelessWidget {
-  const _OverviewTile({
-    required this.title,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-
-  final String title;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x11000000),
-            blurRadius: 12,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: color),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: _kTextSub,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: _kTextMain,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _MemberCard extends StatelessWidget {
   const _MemberCard({
