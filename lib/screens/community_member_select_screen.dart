@@ -842,136 +842,152 @@ class _CommunityMemberSelectScreenState
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
+        final media = MediaQuery.of(context);
         final joinedAt = member.membership.joinedAt;
         final currencyCode =
             _community?.currency.code ?? member.membership.communityId;
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              16,
+              20,
+              24 + media.viewInsets.bottom,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: media.size.height * 0.9,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _MemberAvatar(member: member, size: 52),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            member.displayName,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: _kTextMain,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'ID: ${member.membership.userId}',
-                            style: const TextStyle(color: _kTextSub),
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '選択状態を切り替え',
-                      icon: Icon(
-                        _selectedUids.contains(member.membership.userId)
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                        color: _selectedUids.contains(member.membership.userId)
-                            ? _kMainBlue
-                            : _kTextSub,
-                      ),
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        _toggleSelection(member.membership.userId);
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _buildMemberChips(member),
-                ),
-                const SizedBox(height: 16),
-                _DetailTile(
-                  icon: Icons.event,
-                  title: '参加日',
-                  value: joinedAt == null
-                      ? '不明'
-                      : _formatDate(joinedAt),
-                ),
-                _DetailTile(
-                  icon: Icons.account_balance_wallet,
-                  title: '残高',
-                  value:
-                      '${member.membership.balance.toStringAsFixed(2)} $currencyCode',
-                ),
-                _DetailTile(
-                  icon: Icons.shield_moon,
-                  title: '信頼スコア',
-                  value: '${member.trustScore.toStringAsFixed(0)}%',
-                ),
-                _DetailTile(
-                  icon: Icons.task_alt,
-                  title: '完了率',
-                  value: '${(member.profile?.completionRate ?? 0).toStringAsFixed(0)}%',
-                ),
-                _DetailTile(
-                  icon: Icons.report_problem,
-                  title: 'トラブル率',
-                  value: '${(member.profile?.disputeRate ?? 0).toStringAsFixed(0)}%',
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _toggleSelection(member.membership.userId);
-                        },
-                        child: Text(
-                          _selectedUids.contains(member.membership.userId)
-                              ? '選択を解除'
-                              : 'このメンバーを選択',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton.icon(
-                        icon: const Icon(Icons.send),
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                '${member.displayName} への連絡は近日対応予定です。',
+                    Row(
+                      children: [
+                        _MemberAvatar(member: member, size: 52),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                member.displayName,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: _kTextMain,
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _kMainBlue,
-                          foregroundColor: Colors.white,
+                              const SizedBox(height: 4),
+                              Text(
+                                'ID: ${member.membership.userId}',
+                                style: const TextStyle(color: _kTextSub),
+                              ),
+                            ],
+                          ),
                         ),
-                        label: const Text('直接連絡'),
-                      ),
+                        IconButton(
+                          tooltip: '選択状態を切り替え',
+                          icon: Icon(
+                            _selectedUids.contains(member.membership.userId)
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            color: _selectedUids.contains(member.membership.userId)
+                                ? _kMainBlue
+                                : _kTextSub,
+                          ),
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _toggleSelection(member.membership.userId);
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _buildMemberChips(member),
+                    ),
+                    const SizedBox(height: 16),
+                    _DetailTile(
+                      icon: Icons.event,
+                      title: '参加日',
+                      value: joinedAt == null
+                          ? '不明'
+                          : _formatDate(joinedAt),
+                    ),
+                    _DetailTile(
+                      icon: Icons.account_balance_wallet,
+                      title: '残高',
+                      value:
+                          '${member.membership.balance.toStringAsFixed(2)} $currencyCode',
+                    ),
+                    _DetailTile(
+                      icon: Icons.shield_moon,
+                      title: '信頼スコア',
+                      value: '${member.trustScore.toStringAsFixed(0)}%',
+                    ),
+                    _DetailTile(
+                      icon: Icons.task_alt,
+                      title: '完了率',
+                      value:
+                          '${(member.profile?.completionRate ?? 0).toStringAsFixed(0)}%',
+                    ),
+                    _DetailTile(
+                      icon: Icons.report_problem,
+                      title: 'トラブル率',
+                      value:
+                          '${(member.profile?.disputeRate ?? 0).toStringAsFixed(0)}%',
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              _toggleSelection(member.membership.userId);
+                            },
+                            child: Text(
+                              _selectedUids.contains(member.membership.userId)
+                                  ? '選択を解除'
+                                  : 'このメンバーを選択',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: const Icon(Icons.send),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '${member.displayName} への連絡は近日対応予定です。',
+                                  ),
+                                ),
+                              );
+                            },
+                            style: FilledButton.styleFrom(
+                              backgroundColor: _kMainBlue,
+                              foregroundColor: Colors.white,
+                            ),
+                            label: const Text('直接連絡'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         );
@@ -1356,7 +1372,8 @@ class _HeaderSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final coverUrl = community?.coverUrl;
+    final coverUrl = community?.coverUrl?.trim();
+    final hasCoverImage = _MemberAvatar._isValidUrl(coverUrl);
     final iconLetter = (community?.name.isNotEmpty == true)
         ? community!.name.characters.first
         : communityNameFallback.characters.first;
@@ -1371,15 +1388,21 @@ class _HeaderSection extends StatelessWidget {
               Container(
                 height: 132,
                 width: double.infinity,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE2E8F0),
-                  image: coverUrl == null
-                      ? null
-                      : DecorationImage(
-                          image: NetworkImage(coverUrl),
-                          fit: BoxFit.cover,
-                        ),
+                color: const Color(0xFFE2E8F0),
+              ),
+              if (hasCoverImage)
+                SizedBox(
+                  height: 132,
+                  width: double.infinity,
+                  child: Image.network(
+                    coverUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: const Color(0xFFE2E8F0),
+                    ),
+                  ),
                 ),
+              Positioned.fill(
                 child: Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
@@ -3954,20 +3977,41 @@ class _BankPermissionTile extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 22,
-            backgroundColor: _kMainBlue.withOpacity(0.1),
-            backgroundImage:
-                member.avatarUrl != null ? NetworkImage(member.avatarUrl!) : null,
-            child: member.avatarUrl == null
-                ? Text(
-                    member.name.characters.first,
-                    style: const TextStyle(
-                      color: _kMainBlue,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  )
-                : null,
+          Builder(
+            builder: (context) {
+              final rawUrl = member.avatarUrl;
+              final url = rawUrl?.trim();
+              final fallback = Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: _kMainBlue.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  member.name.characters.first,
+                  style: const TextStyle(
+                    color: _kMainBlue,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              );
+              if (!_MemberAvatar._isValidUrl(url)) {
+                return fallback;
+              }
+              return SizedBox(
+                width: 44,
+                height: 44,
+                child: ClipOval(
+                  child: Image.network(
+                    url!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => fallback,
+                  ),
+                ),
+              );
+            },
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -4443,7 +4487,7 @@ class _MemberAvatar extends StatelessWidget {
   final _SelectableMember member;
   final double size;
 
-  // AppUser の「画像URL」っぽいプロパティ名を動的に試す（存在しなければ null）
+  // Try to read typical avatar url property names from AppUser without compile-time dependency.
   static String? _tryGetAvatarUrl(AppUser? p) {
     if (p == null) return null;
     try {
@@ -4454,9 +4498,7 @@ class _MemberAvatar extends StatelessWidget {
           dyn.imageUrl ??
           dyn.iconUrl);
       if (candidate is String) return candidate as String;
-    } catch (_) {
-      // プロパティが無ければ握りつぶす
-    }
+    } catch (_) {/* ignore */}
     return null;
   }
 
@@ -4468,7 +4510,6 @@ class _MemberAvatar extends StatelessWidget {
     return u != null && (u.isScheme('http') || u.isScheme('https')) && u.host.isNotEmpty;
   }
 
-  // CJKでも破綻しない簡易イニシャル
   static String _initials(String name) {
     final t = name.trim();
     if (t.isEmpty) return '??';
@@ -4476,7 +4517,7 @@ class _MemberAvatar extends StatelessWidget {
     if (runes.length == 1) return String.fromCharCode(runes.first);
     final first = String.fromCharCode(runes.first);
     final second = String.fromCharCode(runes[1]);
-    return (first + second).toUpperCase();
+    return (first + second).toUpperCase(); // harmless for CJK, useful for Latin
   }
 
   @override
@@ -4500,7 +4541,7 @@ class _MemberAvatar extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
-        // サーバが HTML/404/CORS で画像以外を返しても落ちないように
+        // Guard against HTML/404/CORS returning non-image bytes:
         errorBuilder: (_, __, ___) => fallback,
       ),
     );
