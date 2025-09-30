@@ -1,4 +1,4 @@
-part of 'package:econobook/screens/communities/communities_screen.dart';
+part of 'package:econobook/screens/community_screen.dart';
 
 Widget _talkEmptyState({String message = 'まだトークはありません'}) {
   return Container(

@@ -1,4 +1,4 @@
-part of 'communities_screen.dart';
+part of '../community_screen.dart';
 
 enum _TalkFilter { unread, mention, active, pinned }
 enum _TalkSort { unreadFirst, recent, name }
