@@ -200,6 +200,13 @@ class _CommunityMemberSelectScreenState
   }
 
   Widget _buildOverviewSection(num selectedBalance, String currencyCode) {
+    final community = _community;
+    final communityName = community?.name ??
+        widget.initialCommunityName ??
+        widget.communityId;
+    final currencyLabel = (community?.currency.name?.isNotEmpty ?? false)
+        ? community!.currency.name
+        : currencyCode;
     final totalMembers = _members.length;
     final selectedCount = _selectedUids.length;
     final minorCount =
@@ -207,169 +214,132 @@ class _CommunityMemberSelectScreenState
     final pendingCount = _pendingCount;
     final selectionText = selectedCount > 0
         ? '選択中: $selectedCount人 · 合計残高 ${selectedBalance.toStringAsFixed(2)} $currencyCode'
-        : 'まだメンバーは選択されていません。';
+        : 'メンバーを選択すると、まとめてアクションを実行できます。';
+
+    final metrics = [
+      _OverviewMetric(
+        icon: Icons.groups_rounded,
+        label: 'メンバー',
+        value: '$totalMembers人',
+        caption: '参加者の合計',
+        color: _kMainBlue,
+      ),
+      _OverviewMetric(
+        icon: Icons.account_balance,
+        label: '中央銀行権限',
+        value: '${_bankManagerCount}人',
+        caption: 'Owner / BankAdmin',
+        color: _kSubGreen,
+      ),
+      _OverviewMetric(
+        icon: Icons.pending_actions,
+        label: '承認待ち',
+        value: '$pendingCount件',
+        caption: '招待・支払いの保留',
+        color: _kAccentOrange,
+      ),
+      _OverviewMetric(
+        icon: Icons.family_restroom,
+        label: '未成年',
+        value: '$minorCount人',
+        caption: '追加承認が必要なメンバー',
+        color: const Color(0xFF9333EA),
+      ),
+    ];
+
+    final navItems = [
+      _OverviewNavItem(
+        tab: _CommunityDashboardTab.talk,
+        title: 'トーク',
+        description: '承認依頼やピン留めをチェック',
+        icon: Icons.forum_outlined,
+        accentColor: _kAccentOrange,
+      ),
+      _OverviewNavItem(
+        tab: _CommunityDashboardTab.wallet,
+        title: 'ウォレット',
+        description: '残高・取引と保留中の請求を確認',
+        icon: Icons.account_balance_wallet_outlined,
+        accentColor: _kSubGreen,
+      ),
+      _OverviewNavItem(
+        tab: _CommunityDashboardTab.members,
+        title: 'メンバー',
+        description: '検索や権限の管理を行う',
+        icon: Icons.groups_2_outlined,
+        accentColor: _kMainBlue,
+      ),
+      _OverviewNavItem(
+        tab: _CommunityDashboardTab.settings,
+        title: 'コミュ設定',
+        description: '公開範囲と通知を調整',
+        icon: Icons.settings_outlined,
+        accentColor: const Color(0xFF6366F1),
+      ),
+      _OverviewNavItem(
+        tab: _CommunityDashboardTab.bank,
+        title: 'バンク',
+        description: '発行/回収と権限をレビュー',
+        icon: Icons.account_balance_outlined,
+        accentColor: const Color(0xFFDC2626),
+      ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x11000000),
-                blurRadius: 18,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'コミュニティ概要',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: _kTextMain,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                '最新のメンバー状況とアクティビティを確認しましょう。',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: _kTextSub,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _OverviewStatPill(
-                    icon: Icons.groups,
-                    label: 'メンバー',
-                    value: '$totalMembers人',
-                    color: _kMainBlue,
-                  ),
-                  _OverviewStatPill(
-                    icon: Icons.account_balance,
-                    label: '中央銀行権限',
-                    value: '${_bankManagerCount}人',
-                    color: _kSubGreen,
-                  ),
-                  _OverviewStatPill(
-                    icon: Icons.pending_actions,
-                    label: '承認待ち',
-                    value: '$pendingCount件',
-                    color: _kAccentOrange,
-                  ),
-                  _OverviewStatPill(
-                    icon: Icons.family_restroom,
-                    label: '未成年',
-                    value: '$minorCount人',
-                    color: const Color(0xFF9333EA),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Container(
-                decoration: BoxDecoration(
-                  color: _kBgLight,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: _kMainBlue.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: const Icon(
-                            Icons.calendar_month,
-                            color: _kMainBlue,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text(
-                            '今月のまとめ',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: _kTextMain,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'メンバー総数: ${totalMembers}人',
-                      style: const TextStyle(fontSize: 13, color: _kTextMain),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '中央銀行権限: ${_bankManagerCount}人 · 未成年: ${minorCount}人',
-                      style: const TextStyle(fontSize: 13, color: _kTextMain),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      selectionText,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color:
-                            selectedCount > 0 ? _kMainBlue : _kTextSub,
-                        fontWeight: selectedCount > 0
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+        _OverviewHeroCard(
+          communityName: communityName,
+          currencyLabel: currencyLabel,
+          currencyCode: currencyCode,
+          memberCount: totalMembers,
+          bankManagerCount: _bankManagerCount,
+          pendingCount: pendingCount,
+          minorCount: minorCount,
+          selectionSummary: selectionText,
+          hasSelection: selectedCount > 0,
+          onNavigateApprovals:
+              () => _handleDashboardTabSelected(_CommunityDashboardTab.talk),
+          onNavigateMembers:
+              () => _handleDashboardTabSelected(_CommunityDashboardTab.members),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 20),
+        _OverviewMetricsGrid(metrics: metrics),
+        const SizedBox(height: 20),
+        _OverviewNavigationCard(
+          items: navItems,
+          onNavigate: _handleDashboardTabSelected,
+        ),
+        const SizedBox(height: 20),
         _OverviewInsightCard(
           icon: Icons.pending_actions,
-          title: '承認待ちステータス',
+          title: '承認待ちキュー',
           accentColor: _kAccentOrange,
           backgroundColor: _kAccentOrange.withOpacity(0.12),
           lines: [
             if (pendingCount > 0)
-              '承認待ちリクエストが${pendingCount}件あります。'
+              '承認待ちリクエストが${pendingCount}件あります。今すぐレビューしましょう。'
             else
               '現在承認待ちの依頼はありません。',
-            '承認キューからレビューや承認を実行できます。',
+            'キューは「トーク」タブの上部から確認できます。',
           ],
-          actionLabel: pendingCount > 0 ? 'キューを開く' : null,
-          onAction:
-              pendingCount > 0 ? () => _showNotImplemented('承認キュー') : null,
+          actionLabel: 'トークを開く',
+          onAction: () =>
+              _handleDashboardTabSelected(_CommunityDashboardTab.talk),
         ),
         const SizedBox(height: 16),
         _OverviewInsightCard(
           icon: Icons.timeline,
-          title: '最近のトーク / 取引',
+          title: '最新のアクティビティ',
           accentColor: _kSubGreen,
           backgroundColor: _kSubGreen.withOpacity(0.12),
           lines: const [
-            '最新のトピックや取引の概要を下のタブから確認できます。',
-            '詳しく見るには「トーク」「ウォレット」タブをタップしてください。',
+            'ウォレットで最近の取引と承認履歴を振り返りましょう。',
+            '詳細は「ウォレット」タブまたは「メンバー」タブで確認できます。',
           ],
-          actionLabel: 'トークへ移動',
+          actionLabel: 'ウォレットを確認',
           onAction: () =>
-              _handleDashboardTabSelected(_CommunityDashboardTab.talk),
+              _handleDashboardTabSelected(_CommunityDashboardTab.wallet),
         ),
       ],
     );
@@ -1716,73 +1686,460 @@ class _HeaderChip extends StatelessWidget {
   }
 }
 
-class _OverviewStatPill extends StatelessWidget {
-  const _OverviewStatPill({
+class _OverviewHeroCard extends StatelessWidget {
+  const _OverviewHeroCard({
+    required this.communityName,
+    required this.currencyLabel,
+    required this.currencyCode,
+    required this.memberCount,
+    required this.bankManagerCount,
+    required this.pendingCount,
+    required this.minorCount,
+    required this.selectionSummary,
+    required this.hasSelection,
+    required this.onNavigateApprovals,
+    required this.onNavigateMembers,
+  });
+
+  final String communityName;
+  final String currencyLabel;
+  final String currencyCode;
+  final int memberCount;
+  final int bankManagerCount;
+  final int pendingCount;
+  final int minorCount;
+  final String selectionSummary;
+  final bool hasSelection;
+  final VoidCallback onNavigateApprovals;
+  final VoidCallback onNavigateMembers;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+        ),
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x332563EB),
+            blurRadius: 22,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '概要ダッシュボード',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            communityName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              height: 1.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '独自通貨: $currencyLabel ($currencyCode)',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 13,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _OverviewHeroChip(
+                icon: Icons.groups_rounded,
+                label: 'メンバー $memberCount人',
+              ),
+              _OverviewHeroChip(
+                icon: Icons.account_balance,
+                label: '中央銀行権限 $bankManagerCount人',
+                highlightColor: _kSubGreen,
+              ),
+              _OverviewHeroChip(
+                icon: Icons.pending_actions,
+                label: '承認待ち $pendingCount件',
+                highlightColor:
+                    pendingCount > 0 ? _kAccentOrange : null,
+              ),
+              _OverviewHeroChip(
+                icon: Icons.family_restroom,
+                label: '未成年 $minorCount人',
+                highlightColor: const Color(0xFF9333EA),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.16),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
+            ),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '現在の選択',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  selectionSummary,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(hasSelection ? 1 : 0.92),
+                    fontSize: 12,
+                    height: 1.5,
+                    fontWeight: hasSelection ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  onPressed: onNavigateApprovals,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: _kMainBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  child:
+                      Text(pendingCount > 0 ? '承認待ちを確認' : 'トークを開く'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onNavigateMembers,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white54),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text('メンバーを見る'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewHeroChip extends StatelessWidget {
+  const _OverviewHeroChip({
+    required this.icon,
+    required this.label,
+    this.highlightColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color? highlightColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = highlightColor ?? Colors.white;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: highlightColor != null
+            ? highlightColor!.withOpacity(0.14)
+            : Colors.white.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: highlightColor != null
+              ? highlightColor!.withOpacity(0.5)
+              : Colors.white.withOpacity(0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewMetric {
+  const _OverviewMetric({
     required this.icon,
     required this.label,
     required this.value,
+    required this.caption,
     required this.color,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final String caption;
   final Color color;
+}
+
+class _OverviewMetricsGrid extends StatelessWidget {
+  const _OverviewMetricsGrid({required this.metrics});
+
+  final List<_OverviewMetric> metrics;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = constraints.maxWidth > 360 ? 2 : 1;
+        final childAspectRatio = crossAxisCount > 1 ? 2.6 : 3.0;
+        return GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: crossAxisCount,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: childAspectRatio,
+          children: [
+            for (final metric in metrics)
+              _OverviewMetricCard(metric: metric),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _OverviewMetricCard extends StatelessWidget {
+  const _OverviewMetricCard({required this.metric});
+
+  final _OverviewMetric metric;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 148),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: color.withOpacity(0.18)),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x0A000000),
-            blurRadius: 12,
-            offset: Offset(0, 6),
+            color: Color(0x0F000000),
+            blurRadius: 16,
+            offset: Offset(0, 8),
           ),
         ],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 38,
-            height: 38,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
+              color: metric.color.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: color, size: 20),
+            child: Icon(metric.icon, color: metric.color),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(height: 12),
+          Text(
+            metric.label,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: _kTextSub,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            metric.value,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: _kTextMain,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            metric.caption,
+            style: const TextStyle(
+              fontSize: 11,
+              color: _kTextSub,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewNavItem {
+  const _OverviewNavItem({
+    required this.tab,
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.accentColor,
+  });
+
+  final _CommunityDashboardTab tab;
+  final String title;
+  final String description;
+  final IconData icon;
+  final Color accentColor;
+}
+
+class _OverviewNavigationCard extends StatelessWidget {
+  const _OverviewNavigationCard({
+    required this.items,
+    required this.onNavigate,
+  });
+
+  final List<_OverviewNavItem> items;
+  final ValueChanged<_CommunityDashboardTab> onNavigate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x11000000),
+            blurRadius: 18,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'タブショートカット',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: _kTextMain,
+            ),
+          ),
+          const SizedBox(height: 12),
           Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: _kTextSub,
+              for (var i = 0; i < items.length; i++) ...[
+                _OverviewQuickLinkRow(
+                  item: items[i],
+                  onTap: () => onNavigate(items[i].tab),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: _kTextMain,
-                ),
-              ),
+                if (i != items.length - 1)
+                  const Divider(height: 20, color: Color(0xFFE2E8F0)),
+              ],
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _OverviewQuickLinkRow extends StatelessWidget {
+  const _OverviewQuickLinkRow({
+    required this.item,
+    required this.onTap,
+  });
+
+  final _OverviewNavItem item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: item.accentColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(item.icon, color: item.accentColor),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.title,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: _kTextMain,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.description,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSub,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: _kTextSub),
+          ],
+        ),
       ),
     );
   }
@@ -3723,7 +4080,7 @@ class _DashboardTabBar extends StatelessWidget {
       bottom: false,
       child: Container(
         alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
         ),
@@ -3766,7 +4123,7 @@ class _DashboardTabButton extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
@@ -3778,7 +4135,7 @@ class _DashboardTabButton extends StatelessWidget {
         child: Text(
           tab.label,
           style: TextStyle(
-            fontSize: 13,
+            fontSize: 14,
             fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
             color: isActive ? _kMainBlue : _kTextSub,
             letterSpacing: 0.2,
