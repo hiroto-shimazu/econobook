@@ -141,11 +141,8 @@ class _CommunityMemberSelectScreenState
   MemberSortOption _sortOption = MemberSortOption.recent;
   String _searchQuery = '';
   final Set<String> _selectedUids = <String>{};
-  final Map<_CommunityDashboardTab, GlobalKey> _sectionKeys = {
-    for (final tab in _CommunityDashboardTab.values) tab: GlobalKey(),
-  };
   _CommunityDashboardTab _activeDashboardTab =
-      _CommunityDashboardTab.overview;
+      _CommunityDashboardTab.talk;
   bool _requireApprovalSetting = true;
   bool _isDiscoverableSetting = false;
   bool _dualApprovalEnabled = true;
@@ -173,29 +170,19 @@ class _CommunityMemberSelectScreenState
   }
 
   void _handleDashboardTabSelected(_CommunityDashboardTab tab) {
-    if (_activeDashboardTab != tab) {
-      setState(() => _activeDashboardTab = tab);
-    }
-    _scrollToSection(tab);
-  }
-
-  void _scrollToSection(_CommunityDashboardTab tab) {
-    final targetKey = _sectionKeys[tab];
-    final context = targetKey?.currentContext;
-    if (context == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _scrollToSection(tab);
-        }
-      });
+    if (_activeDashboardTab == tab) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
       return;
     }
-    Scrollable.ensureVisible(
-      context,
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeInOut,
-      alignment: 0,
-      alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+    setState(() => _activeDashboardTab = tab);
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
     );
   }
 
@@ -843,19 +830,6 @@ class _CommunityMemberSelectScreenState
     });
   }
 
-  void _selectAllVisible() {
-    final visible = _visibleMembers;
-    setState(() {
-      for (final member in visible) {
-        _selectedUids.add(member.membership.userId);
-      }
-    });
-  }
-
-  void _clearSelection() {
-    setState(() => _selectedUids.clear());
-  }
-
   void _changeFilter(MemberFilter filter) {
     setState(() => _activeFilter = filter);
   }
@@ -1005,64 +979,6 @@ class _CommunityMemberSelectScreenState
     );
   }
 
-  void _showBulkActionSheet() {
-    if (_selectedUids.isEmpty) return;
-    showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '一括アクション (${_selectedUids.length}名)',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: _kTextMain,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                ListTile(
-                  leading: const Icon(Icons.mail_outline),
-                  title: const Text('選択中メンバーにメッセージ'),
-                  subtitle: const Text('近日中に個別チャットへ飛べるようにする予定です'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _showNotImplemented('メッセージ送信');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.verified_user),
-                  title: const Text('中央銀行権限の付与'),
-                  subtitle: const Text('権限変更フローは近日対応予定です'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _showNotImplemented('中央銀行権限の変更');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.person_remove_alt_1),
-                  title: const Text('コミュニティから外す'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _showNotImplemented('メンバー削除');
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   void _showNotImplemented(String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$feature は現在準備中です。')),
@@ -1081,6 +997,145 @@ class _CommunityMemberSelectScreenState
         0, (sum, m) => sum + m.membership.balance);
     final currencyCode = _community?.currency.code ?? 'PTS';
 
+    final slivers = <Widget>[
+      SliverToBoxAdapter(
+        child: _HeaderSection(
+          community: _community,
+          communityNameFallback: communityName,
+          currentRole: widget.currentUserRole,
+          memberCount: _members.length,
+          pendingCount: _pendingCount,
+        ),
+      ),
+      SliverPersistentHeader(
+        pinned: true,
+        delegate: _PinnedTabHeaderDelegate(
+          activeTab: _activeDashboardTab,
+          communityName: communityName,
+          onSelected: _handleDashboardTabSelected,
+        ),
+      ),
+    ];
+
+    switch (_activeDashboardTab) {
+      case _CommunityDashboardTab.overview:
+        slivers.add(
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+              child: _buildOverviewSection(selectedBalance, currencyCode),
+            ),
+          ),
+        );
+        slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 80)));
+        break;
+      case _CommunityDashboardTab.talk:
+        slivers.add(
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 120),
+              child: _buildTalkSection(),
+            ),
+          ),
+        );
+        break;
+      case _CommunityDashboardTab.wallet:
+        slivers.add(
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 80),
+              child: _buildWalletSection(currencyCode),
+            ),
+          ),
+        );
+        break;
+      case _CommunityDashboardTab.members:
+        slivers.add(
+          SliverToBoxAdapter(
+            child: _buildFilterSection(theme),
+          ),
+        );
+        if (_membersLoading && _members.isEmpty) {
+          slivers.add(
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 48),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ),
+          );
+        } else if (_membersError != null) {
+          slivers.add(
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
+                child: _ErrorCard(
+                  message: _membersError!,
+                  onRetry: _refresh,
+                ),
+              ),
+            ),
+          );
+        } else if (members.isEmpty) {
+          slivers.add(
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(20, 48, 20, 120),
+                child: _EmptyState(),
+              ),
+            ),
+          );
+        } else {
+          slivers.add(
+            SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final member = members[index];
+                  final selected =
+                      _selectedUids.contains(member.membership.userId);
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                    child: _MemberCard(
+                      member: member,
+                      selected: selected,
+                      currencyCode: currencyCode,
+                      onSelectToggle: () =>
+                          _toggleSelection(member.membership.userId),
+                      onDetail: () => _showMemberDetail(member),
+                    ),
+                  );
+                },
+                childCount: members.length,
+              ),
+            ),
+          );
+        }
+        slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 140)));
+        break;
+      case _CommunityDashboardTab.settings:
+        slivers.add(
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+              child: _buildSettingsSection(),
+            ),
+          ),
+        );
+        slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 80)));
+        break;
+      case _CommunityDashboardTab.bank:
+        slivers.add(
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+              child: _buildBankSection(currencyCode),
+            ),
+          ),
+        );
+        slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 80)));
+        break;
+    }
+
     return Scaffold(
       backgroundColor: _kBgLight,
       body: SafeArea(
@@ -1091,141 +1146,29 @@ class _CommunityMemberSelectScreenState
               child: CustomScrollView(
                 controller: _scrollController,
                 physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: _HeaderSection(
-                      community: _community,
-                      communityNameFallback: communityName,
-                      currentRole: widget.currentUserRole,
-                      memberCount: _members.length,
-                      pendingCount: _pendingCount,
-                    ),
-                  ),
-                  SliverPersistentHeader(
-                    pinned: true,
-                    delegate: _PinnedTabHeaderDelegate(
-                      activeTab: _activeDashboardTab,
-                      communityName: communityName,
-                      onSelected: _handleDashboardTabSelected,
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Container(
-                      key: _sectionKeys[_CommunityDashboardTab.overview],
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-                      child:
-                          _buildOverviewSection(selectedBalance, currencyCode),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Container(
-                      key: _sectionKeys[_CommunityDashboardTab.talk],
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-                      child: _buildTalkSection(),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Container(
-                      key: _sectionKeys[_CommunityDashboardTab.wallet],
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-                      child: _buildWalletSection(currencyCode),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Container(
-                      key: _sectionKeys[_CommunityDashboardTab.members],
-                      child: _buildFilterSection(theme),
-                    ),
-                  ),
-                  if (_membersLoading && _members.isEmpty)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 48),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    )
-                  else if (_membersError != null)
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
-                        child: _ErrorCard(
-                          message: _membersError!,
-                          onRetry: _refresh,
-                        ),
-                      ),
-                    )
-                  else if (members.isEmpty)
-                    const SliverToBoxAdapter(
-                      child: Padding(
-
-                        padding: EdgeInsets.fromLTRB(20, 48, 20, 120),
-
-                        child: _EmptyState(),
-                      ),
-                    )
-                  else
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final member = members[index];
-                          final selected =
-                              _selectedUids.contains(member.membership.userId);
-                          return Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                            child: _MemberCard(
-                              member: member,
-                              selected: selected,
-                              currencyCode: currencyCode,
-
-                              onSelectToggle: () =>
-                                  _toggleSelection(member.membership.userId),
-
-                              onDetail: () => _showMemberDetail(member),
-                            ),
-                          );
-                        },
-                        childCount: members.length,
-                      ),
-                    ),
-
-                  SliverToBoxAdapter(
-                    child: Container(
-                      key: _sectionKeys[_CommunityDashboardTab.settings],
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
-                      child: _buildSettingsSection(),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Container(
-                      key: _sectionKeys[_CommunityDashboardTab.bank],
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
-                      child: _buildBankSection(currencyCode),
-                    ),
-                  ),
-
-                  const SliverToBoxAdapter(child: SizedBox(height: 140)),
-                ],
+                slivers: slivers,
               ),
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _SelectionSummaryBar(
-                selectedCount: _selectedUids.length,
-                totalMembers: _members.length,
-                totalBalance: selectedBalance,
-                currencyCode: currencyCode,
-                onSelectAll: _selectAllVisible,
-                onClear: _clearSelection,
-                onBulkAction: _showBulkActionSheet,
+            if (_activeDashboardTab == _CommunityDashboardTab.talk)
+              Positioned(
+                right: 20,
+                bottom: 32 + MediaQuery.of(context).padding.bottom,
+                child: _DashboardFab(
+                  icon: Icons.add,
+                  tooltip: '新しいトークを開始',
+                  onPressed: () => _showNotImplemented('新しいトーク'),
+                ),
               ),
-            ),
+            if (_activeDashboardTab == _CommunityDashboardTab.members)
+              Positioned(
+                right: 20,
+                bottom: 32 + MediaQuery.of(context).padding.bottom,
+                child: _DashboardFab(
+                  icon: Icons.person_add_alt_1,
+                  tooltip: 'メンバーを招待',
+                  onPressed: () => _showNotImplemented('メンバー招待'),
+                ),
+              ),
           ],
         ),
       ),
@@ -4146,6 +4089,43 @@ class _DashboardTabButton extends StatelessWidget {
   }
 }
 
+class _DashboardFab extends StatelessWidget {
+  const _DashboardFab({
+    required this.icon,
+    required this.onPressed,
+    this.tooltip,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = Material(
+      color: _kMainBlue,
+      elevation: 6,
+      shadowColor: _kMainBlue.withOpacity(0.35),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(20),
+        child: SizedBox(
+          width: 56,
+          height: 56,
+          child: Center(
+            child: Icon(icon, color: Colors.white, size: 26),
+          ),
+        ),
+      ),
+    );
+    if (tooltip == null || tooltip!.isEmpty) {
+      return button;
+    }
+    return Tooltip(message: tooltip!, child: button);
+  }
+}
+
 class _PinnedTabHeaderDelegate extends SliverPersistentHeaderDelegate {
   _PinnedTabHeaderDelegate({
     required this.activeTab,
@@ -4249,7 +4229,8 @@ class _MemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onSelectToggle,
+      onTap: onDetail,
+      onLongPress: onSelectToggle,
       borderRadius: BorderRadius.circular(24),
       child: Ink(
         decoration: BoxDecoration(
@@ -4292,9 +4273,10 @@ class _MemberCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                          Checkbox.adaptive(
-                            value: selected,
-                            onChanged: (_) => onSelectToggle(),
+                          IconButton(
+                            onPressed: onDetail,
+                            icon: const Icon(Icons.more_horiz),
+                            tooltip: '詳細を開く',
                           ),
                         ],
                       ),
@@ -4346,14 +4328,6 @@ class _MemberCard extends StatelessWidget {
               children: _buildMemberChips(member),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onDetail,
-                icon: const Icon(Icons.more_horiz),
-                label: const Text('詳細'),
-              ),
-            ),
           ],
         ),
       ),
@@ -4465,38 +4439,70 @@ String _formatDate(DateTime value) {
 }
 
 class _MemberAvatar extends StatelessWidget {
-  const _MemberAvatar({required this.member, required this.size});
-
+  const _MemberAvatar({required this.member, this.size = 40});
   final _SelectableMember member;
   final double size;
 
+  // AppUser の「画像URL」っぽいプロパティ名を動的に試す（存在しなければ null）
+  static String? _tryGetAvatarUrl(AppUser? p) {
+    if (p == null) return null;
+    try {
+      final dyn = p as dynamic;
+      final candidate = (dyn.avatarUrl ??
+          dyn.photoUrl ??
+          dyn.photoURL ??
+          dyn.imageUrl ??
+          dyn.iconUrl);
+      if (candidate is String) return candidate as String;
+    } catch (_) {
+      // プロパティが無ければ握りつぶす
+    }
+    return null;
+  }
+
+  static bool _isValidUrl(String? s) {
+    if (s == null) return false;
+    final t = s.trim();
+    if (t.isEmpty) return false;
+    final u = Uri.tryParse(t);
+    return u != null && (u.isScheme('http') || u.isScheme('https')) && u.host.isNotEmpty;
+  }
+
+  // CJKでも破綻しない簡易イニシャル
+  static String _initials(String name) {
+    final t = name.trim();
+    if (t.isEmpty) return '??';
+    final runes = t.runes.toList();
+    if (runes.length == 1) return String.fromCharCode(runes.first);
+    final first = String.fromCharCode(runes.first);
+    final second = String.fromCharCode(runes[1]);
+    return (first + second).toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final photoUrl = member.profile?.photoUrl;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: const Color(0xFFE2E8F0),
-        borderRadius: BorderRadius.circular(size / 2),
-        image: photoUrl == null
-            ? null
-            : DecorationImage(
-                image: NetworkImage(photoUrl),
-                fit: BoxFit.cover,
-              ),
+    final url = _tryGetAvatarUrl(member.profile);
+
+    final fallback = CircleAvatar(
+      radius: size / 2,
+      child: Text(
+        _initials(member.displayName),
+        style: TextStyle(fontSize: size / 2.8),
       ),
-      child: photoUrl == null
-          ? Center(
-              child: Text(
-                member.initials,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: _kTextMain,
-                ),
-              ),
-            )
-          : null,
+    );
+
+    if (!_isValidUrl(url)) return fallback;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size / 2),
+      child: Image.network(
+        url!.trim(),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        // サーバが HTML/404/CORS で画像以外を返しても落ちないように
+        errorBuilder: (_, __, ___) => fallback,
+      ),
     );
   }
 }
@@ -4534,106 +4540,6 @@ class _InfoChip extends StatelessWidget {
               fontWeight: FontWeight.w600,
               color: foreground,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SelectionSummaryBar extends StatelessWidget {
-  const _SelectionSummaryBar({
-    required this.selectedCount,
-    required this.totalMembers,
-    required this.totalBalance,
-    required this.currencyCode,
-    required this.onSelectAll,
-    required this.onClear,
-    required this.onBulkAction,
-  });
-
-  final int selectedCount;
-  final int totalMembers;
-  final num totalBalance;
-  final String currencyCode;
-  final VoidCallback onSelectAll;
-  final VoidCallback onClear;
-  final VoidCallback onBulkAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final hasSelection = selectedCount > 0;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 20,
-            offset: Offset(0, -8),
-          ),
-        ],
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      hasSelection
-                          ? '選択中: $selectedCount / $totalMembers 名'
-                          : 'メンバー総数: $totalMembers 名',
-                      style: theme.textTheme.titleMedium!
-                          .copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      hasSelection
-                          ? '合計残高: ${totalBalance.toStringAsFixed(2)} $currencyCode'
-                          : 'メンバーを選択すると一括アクションが利用できます',
-                      style: const TextStyle(color: _kTextSub, fontSize: 13),
-                    ),
-                  ],
-                ),
-              ),
-              TextButton(
-                onPressed: hasSelection ? onClear : onSelectAll,
-                child: Text(hasSelection ? '全て解除' : '全員選択'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onSelectAll,
-                  icon: const Icon(Icons.select_all),
-                  label: const Text('表示中をすべて選択'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: hasSelection ? onBulkAction : null,
-                  icon: const Icon(Icons.playlist_add_check),
-                  label: const Text('一括アクション'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: _kMainBlue,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),
