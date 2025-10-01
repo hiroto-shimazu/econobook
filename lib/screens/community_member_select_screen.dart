@@ -3,7 +3,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../dev/dev_seed.dart';
@@ -12,6 +11,12 @@ import '../models/app_user.dart';
 import '../models/community.dart';
 import '../models/membership.dart';
 import 'community_join_requests_screen.dart';
+
+// ---- Membership convenience extension (status) ----
+extension _MembershipStatusX on Membership {
+  // Treat pending flag as a status string for uniform filtering.
+  String? get status => pending ? 'pending' : role;
+}
 
 const Color _kMainBlue = Color(0xFF2563EB);
 const Color _kSubGreen = Color(0xFF16A34A);
@@ -154,9 +159,24 @@ class _CommunityMemberSelectScreenState
   bool _isDiscoverableSetting = false;
   bool _dualApprovalEnabled = true;
 
+  // ---- Derived counts ----
+  int get _pendingCount => _members
+    .where((_SelectableMember member) => (member.membership.status ?? '') == 'pending')
+    .length;
+
+  int get _bankManagerCount => _members
+    .where((_SelectableMember member) => member.membership.canManageBank == true)
+    .length;
+
+  // Total approvals waiting: member pending + join request pending
+  int get pendingApprovals => _pendingCount + _pendingJoinRequestCount;
+
   @override
   void initState() {
     super.initState();
+    if (isDev && widget.currentUserUid.isNotEmpty) {
+      setActiveDevUid(widget.currentUserUid);
+    }
     _searchController.addListener(() {
       final query = _searchController.text.trim();
       if (query != _searchQuery) {
@@ -196,7 +216,6 @@ class _CommunityMemberSelectScreenState
 
   void _showDevMenu() {
     if (!isDev) return;
-    String _selectedUid = getDefaultDevUid();
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -204,90 +223,47 @@ class _CommunityMemberSelectScreenState
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
-        final media = MediaQuery.of(context);
-        final padding = EdgeInsets.only(bottom: media.viewInsets.bottom);
-
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, 16, 20, 16) + padding,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Devメニュー（Debug専用）',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 12),
-
-                // ユーザー切替（開発用）
-                Row(
-                  children: [
-                    const Text('開発ユーザー: ', style: TextStyle(fontWeight: FontWeight.w600)),
-                    const SizedBox(width: 8),
-                    StatefulBuilder(
-                      builder: (context, setStateSB) {
-                        return DropdownButton<String>(
-                          value: _selectedUid.isEmpty ? devUsers.first : _selectedUid,
-                          items: devUsers
-                              .map((u) => DropdownMenuItem(value: u, child: Text(u)))
-                              .toList(),
-                          onChanged: (u) {
-                            setStateSB(() => _selectedUid = u ?? devUsers.first);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('現在の開発UIDを $_selectedUid に設定（画面遷移時に利用）')),
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-
-                // シード投入
-                FilledButton.icon(
-                  icon: const Icon(Icons.playlist_add),
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    await seedDevData(widget.communityId);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Devシードを投入しました')),
-                    );
-                  },
-                  label: const Text('Devシードを投入（コミュ・ユーザー・メンバー）'),
-                ),
-                const SizedBox(height: 8),
-
-                // 承認待ち追加
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.pending_actions),
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    await addPendingMembers(widget.communityId, count: 3);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('承認待ちメンバーを3件追加しました')),
-                    );
-                  },
-                  label: const Text('承認待ちを3件追加'),
-                ),
-                const SizedBox(height: 8),
-
-                // 説明
-                const Text(
-                  '開発メモ:\n- ログイン省略は、画面を開くときに getDefaultDevUid() を使って UID を渡す運用を想定。\n'
-                  '- 実アプリの認証フローには影響しません（kDebugMode限定）。\n'
-                  '- Firestore Emulator を使う場合は、CLI で起動しておくとデータが保持されます。',
-                  style: TextStyle(color: Colors.black54, fontSize: 12, height: 1.4),
-                ),
-              ],
-            ),
-          ),
+      builder: (sheetContext) {
+        return _DevMenuSheet(
+          communityId: widget.communityId,
+          currentUid: widget.currentUserUid,
+          onReopenRequested: (String uid) {
+            Navigator.of(sheetContext).pop();
+            _reopenAsDevUser(uid);
+          },
+          onSeedRequested: () async {
+            Navigator.of(sheetContext).pop();
+            await seedDevData(widget.communityId);
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Devシードを投入しました')),
+            );
+          },
+          onAddPendingRequested: () async {
+            Navigator.of(sheetContext).pop();
+            await addPendingMembers(widget.communityId, count: 3);
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('承認待ちメンバーを3件追加しました')),
+            );
+          },
         );
       },
+    );
+  }
+
+  Future<void> _reopenAsDevUser(String uid) async {
+    if (!mounted) return;
+    rememberDevUser(uid);
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => CommunityMemberSelectScreen(
+          communityId: widget.communityId,
+          currentUserUid: uid,
+          initialCommunityName: widget.initialCommunityName,
+          currentUserRole: widget.currentUserRole,
+        ),
+      ),
     );
   }
 
@@ -888,11 +864,11 @@ class _CommunityMemberSelectScreenState
 
   List<_SelectableMember> get _visibleMembers {
     final query = _searchQuery.toLowerCase();
-    final filtered = _members.where((member) {
+    final filtered = _members.where((_SelectableMember member) {
       if (!_applyFilter(member)) return false;
       if (query.isEmpty) return true;
-      final text = '${member.displayName} ${member.membership.userId}'
-          .toLowerCase();
+      final display = (member.profile?.displayName ?? member.membership.userId);
+      final text = '$display ${member.membership.userId}'.toLowerCase();
       return text.contains(query);
     }).toList();
     filtered.sort(_sortComparator);
@@ -904,9 +880,11 @@ class _CommunityMemberSelectScreenState
       case MemberFilter.all:
         return true;
       case MemberFilter.admin:
-        return member.isAdmin;
+        return member.membership.canManageBank == true ||
+            ((member.membership.role).toLowerCase() == 'owner') ||
+            ((member.membership.role).toLowerCase() == 'admin');
       case MemberFilter.pending:
-        return member.isPending;
+        return (member.membership.status ?? '') == 'pending';
       case MemberFilter.bankManagers:
         return member.membership.canManageBank;
       case MemberFilter.minors:
@@ -938,11 +916,7 @@ class _CommunityMemberSelectScreenState
       .where((member) => _selectedUids.contains(member.membership.userId))
       .toList();
 
-  int get _pendingCount =>
-      _members.where((member) => member.isPending).length;
-
-  int get _bankManagerCount =>
-      _members.where((member) => member.membership.canManageBank).length;
+  // (Old derived getters replaced by versions near field declarations)
 
   Future<void> _refresh() async {
     try {
@@ -1141,6 +1115,7 @@ class _CommunityMemberSelectScreenState
     );
   }
 
+
   void _openJoinRequests() {
     if (!mounted) return;
     final communityName =
@@ -1164,11 +1139,9 @@ class _CommunityMemberSelectScreenState
         widget.communityId;
     final members = _visibleMembers;
     final selectedMembers = _selectedMembers;
-    final selectedBalance = selectedMembers.fold<num>(
-        0, (sum, m) => sum + m.membership.balance);
-    final currencyCode = _community?.currency.code ?? 'PTS';
-    final pendingApprovals =
-        _pendingCount + _pendingJoinRequestCount;
+  final selectedBalance = selectedMembers.fold<num>(
+    0, (num sum, _SelectableMember m) => sum + (m.membership.balance));
+  final currencyCode = _community?.currency.code ?? 'PTS';
 
     final slivers = <Widget>[
       SliverToBoxAdapter(
@@ -1360,8 +1333,6 @@ class _CommunityMemberSelectScreenState
 
   Widget _buildFilterSection(ThemeData theme) {
     final totalMembers = _members.length;
-    // 承認待ち件数（既存メンバーの pending + 新規参加リクエスト）
-    final pendingApprovals = _pendingCount + _pendingJoinRequestCount;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
       child: Column(
@@ -4571,7 +4542,7 @@ List<Widget> _buildMemberChips(_SelectableMember member) {
       icon: Icons.visibility,
     ));
   }
-  if (member.isPending) {
+  if ((member.membership.status ?? '') == 'pending') {
     chips.add(const _InfoChip(
       text: '承認待ち',
       color: Color(0xFFFFEFD5),
@@ -4711,6 +4682,343 @@ class _MemberAvatar extends StatelessWidget {
         // Guard against HTML/404/CORS returning non-image bytes:
         errorBuilder: (_, __, ___) => fallback,
       ),
+    );
+  }
+}
+
+class _DevMenuSheet extends StatefulWidget {
+  const _DevMenuSheet({
+    required this.communityId,
+    required this.currentUid,
+    required this.onReopenRequested,
+    required this.onSeedRequested,
+    required this.onAddPendingRequested,
+  });
+
+  final String communityId;
+  final String currentUid;
+  final ValueChanged<String> onReopenRequested;
+  final Future<void> Function() onSeedRequested;
+  final Future<void> Function() onAddPendingRequested;
+
+  @override
+  State<_DevMenuSheet> createState() => _DevMenuSheetState();
+}
+
+class _DevMenuSheetState extends State<_DevMenuSheet> {
+  late final TextEditingController _uidCtrl;
+  late final TextEditingController _labelCtrl;
+  late final TextEditingController _noteCtrl;
+  bool _minor = false;
+  bool _bankManager = false;
+  bool _joinCommunity = true;
+  bool _creating = false;
+  String? _selectedUid;
+
+  @override
+  void initState() {
+    super.initState();
+    _uidCtrl = TextEditingController();
+    _labelCtrl = TextEditingController();
+    _noteCtrl = TextEditingController();
+    final String defaultUid = getDefaultDevUid();
+    _selectedUid = defaultUid.isNotEmpty ? defaultUid : widget.currentUid;
+  }
+
+  @override
+  void dispose() {
+    _uidCtrl.dispose();
+    _labelCtrl.dispose();
+    _noteCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final media = MediaQuery.of(context);
+    final padding = EdgeInsets.only(bottom: media.viewInsets.bottom);
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 16, 20, 16) + padding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Devメニュー（Debug専用）',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 12),
+            ValueListenableBuilder<DevUserState>(
+              valueListenable: devUserStateListenable,
+              builder: (context, state, _) {
+                final entries = state.entries;
+                _alignSelection(entries, state);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '擬似ログイン対象 UID',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    ...entries.map(_buildDevUserTile),
+                    if (_selectedUid != null && _selectedUid!.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          '選択中: ${_selectedUid!}',
+                          style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              icon: const Icon(Icons.login),
+              onPressed: (_selectedUid ?? '').isEmpty
+                  ? null
+                  : () {
+                      final uid = _selectedUid!;
+                      widget.onReopenRequested(uid);
+                    },
+              label: const Text('このUIDで開き直す'),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Firestore ショートカット',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              icon: const Icon(Icons.playlist_add),
+              onPressed: () {
+                FocusScope.of(context).unfocus();
+                widget.onSeedRequested();
+              },
+              label: const Text('Devシードを投入（コミュ・ユーザー・メンバー）'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.pending_actions),
+              onPressed: () {
+                FocusScope.of(context).unfocus();
+                widget.onAddPendingRequested();
+              },
+              label: const Text('承認待ちを3件追加'),
+            ),
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 12),
+            const Text(
+              '新しい開発用ユーザーを作成',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _uidCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'UID（必須）',
+                hintText: '例: dev_taro',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _labelCtrl,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '表示名（任意）',
+                hintText: 'Firestore displayName に反映',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _noteCtrl,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'メモ（任意）',
+                hintText: '一覧に表示するメモ',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: _minor,
+                    title: const Text('未成年'),
+                    onChanged: (value) => setState(() => _minor = value ?? false),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    value: _bankManager,
+                    title: const Text('バンク権限'),
+                    onChanged: (value) => setState(() => _bankManager = value ?? false),
+                  ),
+                ),
+              ],
+            ),
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              value: _joinCommunity,
+              title: Text('コミュニティ ${widget.communityId} に参加させる'),
+              onChanged: (value) => setState(() => _joinCommunity = value ?? true),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              icon: _creating
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.person_add_alt_1),
+              onPressed: _creating ? null : _handleCreate,
+              label: Text(_creating ? '作成中...' : '開発ユーザーを作成'),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              '開発メモ:\n- 「このUIDで開き直す」で擬似ログインできます。\n'
+              '- kDebugMode 限定のため本番ビルドには影響しません。\n'
+              '- Firestore Emulator 利用時は CLI で事前に起動してください。',
+              style: TextStyle(color: Colors.black54, fontSize: 12, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDevUserTile(DevUserEntry entry) {
+    final bool selected = _selectedUid == entry.uid;
+    final bool removable = canRemoveDevUser(entry.uid);
+    final List<String> tags = <String>[];
+    if (entry.uid == widget.currentUid) {
+      tags.add('この画面');
+    }
+    if ((entry.note ?? '').isNotEmpty) {
+      tags.add(entry.note!.trim());
+    }
+    if (entry.minor == true) {
+      tags.add('未成年');
+    }
+    if (entry.canManageBank == true) {
+      tags.add('バンク権限');
+    }
+    final String subtitleText = tags.isEmpty
+        ? entry.uid
+        : '${entry.uid} · ${tags.join(' / ')}';
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Radio<String>(
+        value: entry.uid,
+        groupValue: _selectedUid,
+        onChanged: (value) {
+          if (value == null) return;
+          _selectUid(value);
+        },
+      ),
+      title: Text(entry.displayLabel),
+      subtitle: Text(
+        subtitleText,
+        style: const TextStyle(fontSize: 12, color: Colors.black54),
+      ),
+      trailing: removable
+          ? IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'リストから削除',
+              onPressed: () => _removeUid(entry.uid),
+            )
+          : null,
+      selected: selected,
+      onTap: () => _selectUid(entry.uid),
+    );
+  }
+
+  void _alignSelection(List<DevUserEntry> entries, DevUserState state) {
+    if (entries.isEmpty) return;
+    final String? preferred = state.activeUid ?? state.lastUsedUid ?? entries.first.uid;
+    if (preferred == null) return;
+    if (_selectedUid == preferred) return;
+    if (!entries.any((entry) => entry.uid == preferred)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _selectedUid = preferred);
+    });
+  }
+
+  void _selectUid(String uid) {
+    setActiveDevUid(uid);
+    setState(() => _selectedUid = uid);
+    _showSnack('擬似ログイン対象を $uid に設定しました');
+  }
+
+  void _removeUid(String uid) {
+    removeDevUser(uid);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final entries = devUserState.entries;
+      final String? fallback = devUserState.activeUid ??
+          devUserState.lastUsedUid ??
+          (entries.isNotEmpty ? entries.first.uid : null);
+      setState(() => _selectedUid = fallback);
+    });
+    _showSnack('$uid をリストから削除しました');
+  }
+
+  Future<void> _handleCreate() async {
+    final String uid = _uidCtrl.text.trim();
+    if (uid.isEmpty) {
+      _showSnack('UIDを入力してください');
+      return;
+    }
+    setState(() => _creating = true);
+    FocusScope.of(context).unfocus();
+    try {
+      await createDevUser(
+        uid: uid,
+        label: _labelCtrl.text.trim().isEmpty ? null : _labelCtrl.text.trim(),
+        note: _noteCtrl.text.trim().isEmpty ? null : _noteCtrl.text.trim(),
+        minor: _minor,
+        canManageBank: _bankManager,
+        communityId: widget.communityId,
+        joinCommunity: _joinCommunity,
+      );
+      if (!mounted) return;
+      setState(() {
+        _selectedUid = uid;
+        _uidCtrl.clear();
+        _labelCtrl.clear();
+        _noteCtrl.clear();
+        _minor = false;
+        _bankManager = false;
+        _joinCommunity = true;
+      });
+      _showSnack('開発ユーザー $uid を作成しました');
+    } catch (error) {
+      if (!mounted) return;
+      _showSnack('ユーザー作成に失敗しました: $error');
+    } finally {
+      if (mounted) {
+        setState(() => _creating = false);
+      }
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 }
