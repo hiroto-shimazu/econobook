@@ -12,6 +12,7 @@ import '../community_create_screen.dart';
 import '../community_leader_settings_screen.dart';
 import '../member_chat_screen.dart';
 import '../transactions/transaction_flow_screen.dart';
+import '../../services/community_service.dart';
 
 part 'talk_tab.dart';
 part '../../widgets/talk/talk_thread_tile.dart';
@@ -85,6 +86,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   late final Query<Map<String, dynamic>> _talkThreadsQuery;
   late final Stream<int> _pendingRequestsCountStream;
   String _searchKeyword = '';
+  final CommunityService _communityService = CommunityService();
+  String? _processingJoinCommunityId;
 
   @override
   void initState() {
@@ -241,11 +244,35 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
             return Column(
               children: [
                 for (final d in filtered) ...[
-                  _discoverCard(d.data(), onRequest: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('参加申請は準備中です')),
-                    );
-                  }),
+                  StreamBuilder<
+                      DocumentSnapshot<Map<String, dynamic>>>(
+                    stream: FirebaseFirestore.instance
+                        .collection('join_requests')
+                        .doc(d.id)
+                        .collection('items')
+                        .doc(widget.user.uid)
+                        .snapshots(),
+                    builder: (context, requestSnap) {
+                      final communityData = d.data();
+                      final requestData = requestSnap.data?.data();
+                      final status = requestData == null
+                          ? null
+                          : (requestData['status'] as String?);
+                      final isPending = status == 'pending';
+                      final isProcessing =
+                          _processingJoinCommunityId == d.id;
+                      return _discoverCard(
+                        communityData,
+                        isPending: isPending,
+                        isProcessing: isProcessing,
+                        onRequest: isPending
+                            ? null
+                            : () => _requestJoinCommunity(context, d.id),
+                        onViewDetail: () =>
+                            _showDiscoverCommunityDetail(context, communityData),
+                      );
+                    },
+                  ),
                   const SizedBox(height: 12),
                 ]
               ],
@@ -454,6 +481,41 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     }
   }
 
+  Future<void> _requestJoinCommunity(
+    BuildContext context,
+    String communityId,
+  ) async {
+    setState(() => _processingJoinCommunityId = communityId);
+    try {
+      final joined = await _communityService.joinCommunity(
+        userId: widget.user.uid,
+        communityId: communityId,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            joined ? 'コミュニティに参加しました' : '参加リクエストを送信しました',
+          ),
+        ),
+      );
+    } on StateError catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('参加リクエストを送信できませんでした: ${e.message}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('参加リクエストを送信できませんでした: $e')),
+      );
+    } finally {
+      if (mounted && _processingJoinCommunityId == communityId) {
+        setState(() => _processingJoinCommunityId = null);
+      }
+    }
+  }
+
   Widget _coverFallback(String title) {
     final t = title.trim();
     final initial = t.isEmpty ? '?' : t[0].toUpperCase();
@@ -473,6 +535,112 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
           fontWeight: FontWeight.w800,
         ),
       ),
+    );
+  }
+
+  void _showDiscoverCommunityDetail(
+    BuildContext context,
+    Map<String, dynamic> data,
+  ) {
+    final name = (data['name'] as String?) ?? 'コミュニティ';
+    final description = (data['description'] as String?)?.trim();
+    final members = (data['membersCount'] as num?)?.toInt();
+    final currency = (data['currency'] as Map<String, dynamic>?) ?? const {};
+    final currencyName = (currency['name'] as String?)?.trim();
+    final policy = (data['policy'] as Map<String, dynamic>?) ?? const {};
+    final requiresApproval = policy['requiresApproval'] == true;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            left: 24,
+            right: 24,
+            top: 24,
+            bottom: 24 + MediaQuery.of(ctx).padding.bottom,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: kTextMain,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (description != null && description.isNotEmpty) ...[
+                  Text(
+                    description,
+                    style: const TextStyle(color: kTextMain),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (members != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.groups_outlined, color: kTextSub),
+                        const SizedBox(width: 8),
+                        Text(
+                          'メンバー数: ${members}人',
+                          style: const TextStyle(color: kTextMain),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (currencyName != null && currencyName.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.currency_exchange, color: kTextSub),
+                        const SizedBox(width: 8),
+                        Text(
+                          '利用通貨: $currencyName',
+                          style: const TextStyle(color: kTextMain),
+                        ),
+                      ],
+                    ),
+                  ),
+                Row(
+                  children: [
+                    const Icon(Icons.verified_user_outlined, color: kTextSub),
+                    const SizedBox(width: 8),
+                    Text(
+                      requiresApproval
+                          ? '参加には承認が必要です'
+                          : '参加リクエストは自動承認されます',
+                      style: const TextStyle(color: kTextMain),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -884,7 +1052,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
 
   Widget _discoverCard(
     Map<String, dynamic> c, {
-    required VoidCallback onRequest,
+    required VoidCallback onViewDetail,
+    VoidCallback? onRequest,
+    required bool isPending,
+    required bool isProcessing,
   }) {
     final title = (c['name'] as String?) ?? (c['id'] as String? ?? 'Community');
     final members = (c['membersCount'] as num?)?.toInt();
@@ -908,11 +1079,20 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       leading = _coverFallback(title);
     }
 
+    final requestEnabled =
+        onRequest != null && !isPending && !isProcessing;
+    final requestBackgroundColor = isProcessing
+        ? kBrandBlue
+        : requestEnabled
+            ? kBrandBlue
+            : kLightGray;
+    final requestForegroundColor =
+        requestEnabled || isProcessing ? Colors.white : kTextSub;
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: onRequest,
+        onTap: onViewDetail,
         child: Ink(
           decoration: BoxDecoration(
             color: kCardWhite,
@@ -959,24 +1139,57 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: SizedBox(
-                          height: 40,
-                          child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: kBrandBlue,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 10),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 40,
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: kBrandBlue,
+                                  side: const BorderSide(color: kBrandBlue),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: onViewDetail,
+                                child: const Text('詳細を見る'),
                               ),
                             ),
-                            onPressed: onRequest,
-                            child: const Text('参加をリクエスト'),
                           ),
-                        ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: SizedBox(
+                              height: 40,
+                              child: FilledButton(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: requestBackgroundColor,
+                                  foregroundColor: requestForegroundColor,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: requestEnabled ? onRequest : null,
+                                child: isProcessing
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation(
+                                            Colors.white,
+                                          ),
+                                        ),
+                                      )
+                                    : Text(
+                                        isPending
+                                            ? '承認待ち'
+                                            : '参加をリクエスト',
+                                      ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

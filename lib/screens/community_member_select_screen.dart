@@ -11,6 +11,7 @@ import '../dev/dev_users.dart';
 import '../models/app_user.dart';
 import '../models/community.dart';
 import '../models/membership.dart';
+import 'community_join_requests_screen.dart';
 
 const Color _kMainBlue = Color(0xFF2563EB);
 const Color _kSubGreen = Color(0xFF16A34A);
@@ -130,6 +131,8 @@ class _CommunityMemberSelectScreenState
       _communitySubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
       _membersSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+      _joinRequestsSubscription;
 
   Community? _community;
   String? _communityError;
@@ -138,6 +141,8 @@ class _CommunityMemberSelectScreenState
   String? _membersError;
   bool _membersLoading = true;
   int _membersUpdateToken = 0;
+  int _pendingJoinRequestCount = 0;
+  bool _joinRequestInitialized = false;
 
   MemberFilter _activeFilter = MemberFilter.all;
   MemberSortOption _sortOption = MemberSortOption.recent;
@@ -166,6 +171,7 @@ class _CommunityMemberSelectScreenState
   void dispose() {
     _communitySubscription?.cancel();
     _membersSubscription?.cancel();
+    _joinRequestsSubscription?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -297,7 +303,7 @@ class _CommunityMemberSelectScreenState
     final selectedCount = _selectedUids.length;
     final minorCount =
         _members.where((member) => member.profile?.minor == true).length;
-    final pendingCount = _pendingCount;
+    final pendingCount = _pendingCount + _pendingJoinRequestCount;
     final selectionText = selectedCount > 0
         ? '選択中: $selectedCount人 · 合計残高 ${selectedBalance.toStringAsFixed(2)} $currencyCode'
         : 'メンバーを選択すると、まとめてアクションを実行できます。';
@@ -772,6 +778,41 @@ class _CommunityMemberSelectScreenState
         });
       },
     );
+
+    final joinRequestsQuery = FirebaseFirestore.instance
+        .collection('join_requests')
+        .doc(widget.communityId)
+        .collection('items')
+        .where('status', isEqualTo: 'pending');
+    _joinRequestsSubscription = joinRequestsQuery.snapshots().listen(
+      (snapshot) {
+        if (!mounted) return;
+        final newCount = snapshot.docs.length;
+        final shouldNotify =
+            _joinRequestInitialized && newCount > _pendingJoinRequestCount;
+        setState(() {
+          _pendingJoinRequestCount = newCount;
+          _joinRequestInitialized = true;
+        });
+        if (shouldNotify) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('新しい参加申請が届きました')),
+            );
+          });
+        }
+      },
+      onError: (error) {
+        if (!mounted) return;
+        if (!_joinRequestInitialized) {
+          setState(() {
+            _pendingJoinRequestCount = 0;
+            _joinRequestInitialized = true;
+          });
+        }
+      },
+    );
   }
 
   Future<void> _handleMembersSnapshot(
@@ -1100,6 +1141,21 @@ class _CommunityMemberSelectScreenState
     );
   }
 
+  void _openJoinRequests() {
+    if (!mounted) return;
+    final communityName =
+        _community?.name ?? widget.initialCommunityName ?? widget.communityId;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CommunityJoinRequestsScreen(
+          communityId: widget.communityId,
+          communityName: communityName,
+          currentUserUid: widget.currentUserUid,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1111,6 +1167,8 @@ class _CommunityMemberSelectScreenState
     final selectedBalance = selectedMembers.fold<num>(
         0, (sum, m) => sum + m.membership.balance);
     final currencyCode = _community?.currency.code ?? 'PTS';
+    final pendingApprovals =
+        _pendingCount + _pendingJoinRequestCount;
 
     final slivers = <Widget>[
       SliverToBoxAdapter(
@@ -1119,7 +1177,7 @@ class _CommunityMemberSelectScreenState
           communityNameFallback: communityName,
           currentRole: widget.currentUserRole,
           memberCount: _members.length,
-          pendingCount: _pendingCount,
+          pendingCount: pendingApprovals,
         ),
       ),
       SliverPersistentHeader(
@@ -1302,16 +1360,16 @@ class _CommunityMemberSelectScreenState
 
   Widget _buildFilterSection(ThemeData theme) {
     final totalMembers = _members.length;
+    // 承認待ち件数（既存メンバーの pending + 新規参加リクエスト）
+    final pendingApprovals = _pendingCount + _pendingJoinRequestCount;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _MembersApprovalCard(
-            pendingCount: _pendingCount,
-            onTap: _pendingCount > 0
-                ? () => _showNotImplemented('参加申請の承認')
-                : null,
+            pendingCount: pendingApprovals,
+            onTap: () => _openJoinRequests(),
           ),
           const SizedBox(height: 16),
           _DashboardSearchField(
