@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../dev/dev_seed.dart';
@@ -10,7 +11,18 @@ import '../dev/dev_users.dart';
 import '../models/app_user.dart';
 import '../models/community.dart';
 import '../models/membership.dart';
+import '../models/payment_request.dart';
+import '../models/split_rounding_mode.dart';
+import '../services/chat_service.dart';
+import '../services/community_service.dart';
+import '../services/firestore_refs.dart';
+import '../services/request_service.dart';
+import '../services/task_service.dart';
+import '../constants/community.dart';
 import 'community_join_requests_screen.dart';
+import 'member_chat_screen.dart';
+import 'transactions/transaction_flow_screen.dart';
+import 'wallet_screen.dart';
 
 // ---- Membership convenience extension (status) ----
 extension _MembershipStatusX on Membership {
@@ -50,6 +62,8 @@ enum _CommunityDashboardTab {
   settings,
   bank,
 }
+
+enum _TalkFilterOption { all, unread, mention, active }
 
 extension _CommunityDashboardTabLabel on _CommunityDashboardTab {
   String get label {
@@ -131,6 +145,7 @@ class _CommunityMemberSelectScreenState
     extends State<CommunityMemberSelectScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final TextEditingController _talkSearchController = TextEditingController();
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
       _communitySubscription;
@@ -158,6 +173,25 @@ class _CommunityMemberSelectScreenState
   bool _requireApprovalSetting = true;
   bool _isDiscoverableSetting = false;
   bool _dualApprovalEnabled = true;
+  String _talkSearchQuery = '';
+  _TalkFilterOption _talkFilter = _TalkFilterOption.all;
+  final ChatService _chatService = ChatService();
+  final Set<String> _pinningThreads = <String>{};
+  final Set<String> _markingReadThreads = <String>{};
+  final RequestService _requestService = RequestService();
+  final TaskService _taskService = TaskService();
+  final CommunityService _communityService = CommunityService();
+  String? _processingRequestId;
+  bool _bulkActionInProgress = false;
+  bool _updatingApprovalSetting = false;
+  bool _updatingDiscoverableSetting = false;
+  bool _leavingCommunity = false;
+  bool _deletingCommunity = false;
+  bool _minting = false;
+  bool _burning = false;
+  bool _dualApprovalUpdating = false;
+  String? _bankPermissionUpdatingUid;
+  bool _addingBankManager = false;
 
   // ---- Derived counts ----
   int get _pendingCount => _members
@@ -183,6 +217,7 @@ class _CommunityMemberSelectScreenState
         setState(() => _searchQuery = query);
       }
     });
+    _talkSearchController.addListener(_handleTalkSearchChanged);
     _subscribeCommunity();
     _subscribeMembers();
   }
@@ -193,6 +228,8 @@ class _CommunityMemberSelectScreenState
     _membersSubscription?.cancel();
     _joinRequestsSubscription?.cancel();
     _searchController.dispose();
+    _talkSearchController.removeListener(_handleTalkSearchChanged);
+    _talkSearchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -414,95 +451,198 @@ class _CommunityMemberSelectScreenState
   }
 
   Widget _buildTalkSection() {
-    const pinnedChannels = [
-      _TalkChannelEntry(
-        title: 'settlement',
-        subtitle: '佐藤: @あなた 会費の承認お願いします',
-        timeLabel: '10:24',
-        hasMention: true,
-        highlightBadge: '@',
-        mentionColor: _kAccentOrange,
-        borderColor: Color(0x33F59E0B),
+    final pendingCount = _pendingJoinRequestCount;
+    const filters = [
+      _FilterChipConfig(
+        label: 'すべて',
+        value: _TalkFilterOption.all,
+        isPrimary: true,
       ),
-    ];
-    const unreadChannels = [
-      _TalkChannelEntry(
-        title: 'general',
-        subtitle: '鈴木: 今日のランチどうしますか？',
-        timeLabel: '15:30',
-        unreadCount: 3,
-        highlightColor: Color(0xFFE5EDFF),
+      _FilterChipConfig(
+        label: '未読',
+        value: _TalkFilterOption.unread,
       ),
-    ];
-    const recentChannels = [
-      _TalkChannelEntry(
-        title: 'confidential',
-        subtitle: '田中: 次回の予算について',
-        timeLabel: '昨日',
-        inlineIcon: Icons.folder_shared_outlined,
+      _FilterChipConfig(
+        label: 'メンション',
+        value: _TalkFilterOption.mention,
+        trailingBadge: '@',
+      ),
+      _FilterChipConfig(
+        label: '参加中',
+        value: _TalkFilterOption.active,
       ),
     ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _HighlightBanner(
-          icon: Icons.info_outline,
-          backgroundColor: _kAccentOrange.withOpacity(0.1),
-          iconColor: _kAccentOrange,
-          message: const Text.rich(
-            TextSpan(
-              children: [
-                TextSpan(text: '承認待ち依頼が '),
-                TextSpan(
-                  text: '3件',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                TextSpan(text: ' あります。'),
-              ],
+    final threadQuery = FirebaseFirestore.instance
+        .collection('community_chats')
+        .doc(widget.communityId)
+        .collection('threads')
+        .where('participants', arrayContains: widget.currentUserUid)
+        .orderBy('updatedAt', descending: true);
+
+    final children = <Widget>[];
+    if (pendingCount > 0) {
+      children
+        ..add(
+          _HighlightBanner(
+            icon: Icons.info_outline,
+            backgroundColor: _kAccentOrange.withOpacity(0.1),
+            iconColor: _kAccentOrange,
+            message: Text.rich(
+              TextSpan(
+                children: [
+                  const TextSpan(text: '承認待ち依頼が '),
+                  TextSpan(
+                    text: '$pendingCount件',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const TextSpan(text: ' あります。'),
+                ],
+              ),
+              style: const TextStyle(fontSize: 13, color: _kTextMain),
             ),
-            style: TextStyle(fontSize: 13, color: _kTextMain),
+            actionLabel: '一覧へ',
+            onAction: _openJoinRequests,
           ),
-          actionLabel: '一覧へ',
-          onAction: () => _showNotImplemented('承認待ち一覧'),
-        ),
-        const SizedBox(height: 16),
-        const _DashboardSearchField(
+        )
+        ..add(const SizedBox(height: 16));
+    }
+
+    children
+      ..add(
+        _DashboardSearchField(
+          controller: _talkSearchController,
           hintText: 'チャンネル・メッセージ検索',
         ),
-        const SizedBox(height: 12),
+      )
+      ..add(const SizedBox(height: 12))
+      ..add(
         _ScrollableFilterRow(
-          filters: const [
-            _FilterChipConfig(label: 'すべて', isPrimary: true),
-            _FilterChipConfig(label: '未読'),
-            _FilterChipConfig(label: 'メンション', trailingBadge: '@'),
-            _FilterChipConfig(label: '参加中'),
-          ],
-          onFilterTap: (label) => _showNotImplemented('フィルター: $label'),
+          filters: filters,
+          activeValue: _talkFilter,
+          onFilterTap: (chip) {
+            final value = chip.value as _TalkFilterOption?;
+            final next = value ?? _TalkFilterOption.all;
+            if (next == _talkFilter) return;
+            setState(() => _talkFilter = next);
+          },
         ),
-        const SizedBox(height: 20),
-        _TalkChannelGroup(
-          title: 'ピン留め',
-          entries: pinnedChannels,
-          onTapChannel: _showNotImplemented,
+      )
+      ..add(const SizedBox(height: 20))
+      ..add(
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: threadQuery.snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return _TalkMessageCard(
+                message: 'トークを取得できませんでした: ${snapshot.error}',
+              );
+            }
+            final docs = snapshot.data?.docs ?? [];
+            if (docs.isEmpty) {
+              return const _TalkMessageCard(message: 'まだトークがありません。');
+            }
+            return FutureBuilder<List<_TalkChannelEntry?>>(
+              future: Future.wait(docs.map(_createTalkEntry)),
+              builder: (context, entriesSnapshot) {
+                if (entriesSnapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (entriesSnapshot.hasError) {
+                  return _TalkMessageCard(
+                    message: 'トークを処理できませんでした: ${entriesSnapshot.error}',
+                  );
+                }
+                final entries =
+                    (entriesSnapshot.data ?? const <_TalkChannelEntry?>[])
+                        .whereType<_TalkChannelEntry>()
+                        .toList();
+                if (entries.isEmpty) {
+                  return const _TalkMessageCard(message: 'トークがありません。');
+                }
+                final filtered = _filterTalkEntries(entries);
+                if (filtered.isEmpty) {
+                  return const _TalkMessageCard(
+                    message: '条件に一致するトークがありません。',
+                  );
+                }
+
+                final pinned = filtered.where((e) => e.isPinned).toList();
+                final unread = filtered
+                    .where((e) => !e.isPinned && e.unreadCount > 0)
+                    .toList();
+                final recent = filtered
+                    .where((e) => !e.isPinned && e.unreadCount == 0)
+                    .toList();
+
+                _sortTalkEntries(pinned);
+                _sortUnreadEntries(unread);
+                _sortTalkEntries(recent);
+
+                final sections = <Widget>[];
+
+                void addSection(String title, List<_TalkChannelEntry> items) {
+                  if (items.isEmpty) return;
+                  if (sections.isNotEmpty) {
+                    sections.add(const SizedBox(height: 16));
+                  }
+                  sections.add(
+                    _TalkChannelGroup(
+                      title: title,
+                      entries: items,
+                      onTapChannel: _openTalkThread,
+                      onTogglePin: _toggleTalkPin,
+                      pinningThreadIds: _pinningThreads,
+                    ),
+                  );
+                }
+
+                addSection('ピン留め', pinned);
+                addSection('未読', unread);
+                addSection('最近', recent);
+
+                if (sections.isEmpty) {
+                  return const _TalkMessageCard(
+                    message: '条件に一致するトークがありません。',
+                  );
+                }
+
+                return Column(children: sections);
+              },
+            );
+          },
         ),
-        const SizedBox(height: 16),
-        _TalkChannelGroup(
-          title: '未読',
-          entries: unreadChannels,
-          onTapChannel: _showNotImplemented,
-        ),
-        const SizedBox(height: 16),
-        _TalkChannelGroup(
-          title: '最近',
-          entries: recentChannels,
-          onTapChannel: _showNotImplemented,
-        ),
-      ],
+      );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
     );
   }
 
   Widget _buildWalletSection(String currencyCode) {
+    final membership = _findMemberByUid(widget.currentUserUid)?.membership;
+    final balance = membership?.balance ?? 0;
+    final userUid = widget.currentUserUid;
+
+    final pendingQuery = FirebaseFirestore.instance
+        .collection('requests')
+        .doc(widget.communityId)
+        .collection('items')
+        .where('status', isEqualTo: 'pending')
+        .where('toUid', isEqualTo: userUid);
+
+    final ledgerQuery = FirebaseFirestore.instance
+        .collection('ledger')
+        .doc(widget.communityId)
+        .collection('entries')
+        .orderBy('createdAt', descending: true)
+        .limit(50);
+
     const quickActions = [
       _WalletQuickAction(
         icon: Icons.north_east,
@@ -525,69 +665,165 @@ class _CommunityMemberSelectScreenState
       _WalletQuickAction(
         icon: Icons.task_alt_outlined,
         label: 'タスク',
-        backgroundColor: Color(0xFFE2E8F0),
-        foregroundColor: _kTextSub,
+        backgroundColor: Color(0xFFFFEDD5),
+        foregroundColor: _kAccentOrange,
       ),
     ];
 
-    const transactions = [
-      _WalletTransaction(
-        title: '佐藤さんへ送金',
-        subtitle: '9月24日 18:30',
-        amount: -500,
-        type: WalletActivityType.withdrawal,
-      ),
-      _WalletTransaction(
-        title: '田中さんからの報酬',
-        subtitle: '9月24日 15:00',
-        amount: 2000,
-        type: WalletActivityType.deposit,
-      ),
-      _WalletTransaction(
-        title: '飲み会 割り勘',
-        subtitle: '9月23日 21:00',
-        amount: -950,
-        type: WalletActivityType.withdrawal,
-      ),
-    ];
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: pendingQuery.snapshots(),
+      builder: (context, pendingSnapshot) {
+        if (pendingSnapshot.connectionState == ConnectionState.waiting &&
+            !pendingSnapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (pendingSnapshot.hasError) {
+          return _WalletMessageCard(
+            message: '承認リクエストを取得できませんでした: ${pendingSnapshot.error}',
+          );
+        }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _WalletBalanceCard(
-          currencyCode: currencyCode,
-          balance: 25800,
-          monthlyInflow: 5200,
-          monthlyOutflow: 1450,
-          pendingCount: 3,
-        ),
-        const SizedBox(height: 16),
-        _WalletActionGrid(
-          actions: quickActions,
-          onTap: (label) => _showNotImplemented('ウォレットアクション: $label'),
-        ),
-        const SizedBox(height: 16),
-        _WalletApprovalCard(
-          requester: '鈴木さん',
-          amount: 300,
-          currencyCode: currencyCode,
-          memo: '先日のランチ代',
-          onApprove: () => _showNotImplemented('請求承認'),
-          onReject: () => _showNotImplemented('請求却下'),
-        ),
-        const SizedBox(height: 16),
-        _WalletTransactionList(
-          transactions: transactions,
-          currencyCode: currencyCode,
-          onViewAll: () => _showNotImplemented('取引履歴'),
-        ),
-      ],
+        final pendingDocs = pendingSnapshot.data?.docs ?? const [];
+        final paymentRequests = <PaymentRequest>[];
+        for (final doc in pendingDocs) {
+          try {
+            paymentRequests.add(
+              PaymentRequest.fromMap(id: doc.id, data: doc.data()),
+            );
+          } catch (e, stack) {
+            debugPrint('Failed to parse payment request ${doc.id}: $e\n$stack');
+          }
+        }
+        paymentRequests.sort((a, b) {
+          final at = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bt = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bt.compareTo(at);
+        });
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: ledgerQuery.snapshots(),
+          builder: (context, ledgerSnapshot) {
+            if (ledgerSnapshot.connectionState == ConnectionState.waiting &&
+                !ledgerSnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (ledgerSnapshot.hasError) {
+              return _WalletMessageCard(
+                message: '取引履歴を取得できませんでした: ${ledgerSnapshot.error}',
+              );
+            }
+
+            final ledgerDocs = ledgerSnapshot.data?.docs ?? const [];
+            final transactions = <_WalletTransaction>[];
+            num monthlyInflow = 0;
+            num monthlyOutflow = 0;
+            final now = DateTime.now();
+
+            for (final doc in ledgerDocs) {
+              final data = doc.data();
+              final fromUid = (data['fromUid'] as String?) ?? '';
+              final toUid = (data['toUid'] as String?) ?? '';
+              if (fromUid != userUid && toUid != userUid) {
+                continue;
+              }
+              final amount = (data['amount'] as num?) ?? 0;
+              final createdAt = _parseTimestamp(data['createdAt']);
+              final memo = (data['memo'] as String?)?.trim();
+              final isDeposit = toUid == userUid;
+              final counterpartyUid = isDeposit ? fromUid : toUid;
+              final counterpartyName = _displayNameFor(counterpartyUid);
+              final title = memo != null && memo.isNotEmpty
+                  ? memo
+                  : isDeposit
+                      ? '$counterpartyName から受け取り'
+                      : '$counterpartyName へ送金';
+              final subtitle = _formatWalletTimestamp(createdAt);
+              final adjustedAmount = isDeposit ? amount : -amount;
+
+              if (createdAt != null &&
+                  createdAt.year == now.year &&
+                  createdAt.month == now.month) {
+                if (isDeposit) {
+                  monthlyInflow += amount;
+                } else {
+                  monthlyOutflow += amount.abs();
+                }
+              }
+
+              transactions.add(
+                _WalletTransaction(
+                  title: title,
+                  subtitle: subtitle,
+                  amount: adjustedAmount,
+                  type: isDeposit
+                      ? WalletActivityType.deposit
+                      : WalletActivityType.withdrawal,
+                  timestamp: createdAt,
+                  counterpartyUid: counterpartyUid,
+                ),
+              );
+            }
+
+            transactions.sort((a, b) {
+              final at = a.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bt = b.timestamp ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bt.compareTo(at);
+            });
+
+            final recentTransactions = transactions.take(5).toList();
+            final pendingCount = paymentRequests.length;
+            final pendingRequest =
+                paymentRequests.isEmpty ? null : paymentRequests.first;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _WalletBalanceCard(
+                  currencyCode: currencyCode,
+                  balance: balance,
+                  monthlyInflow: monthlyInflow,
+                  monthlyOutflow: monthlyOutflow,
+                  pendingCount: pendingCount,
+                ),
+                const SizedBox(height: 16),
+                _WalletActionGrid(
+                  actions: quickActions,
+                  onTap: (label) => _handleWalletAction(label, currencyCode),
+                ),
+                const SizedBox(height: 16),
+                if (pendingRequest != null)
+                  _WalletApprovalCard(
+                    requester: _displayNameFor(pendingRequest.fromUid),
+                    amount: pendingRequest.amount,
+                    currencyCode: currencyCode,
+                    memo: pendingRequest.memo ?? 'メモなし',
+                    processing: _processingRequestId == pendingRequest.id,
+                    onApprove: () =>
+                        _handleApproveRequest(pendingRequest, currencyCode),
+                    onReject: () => _handleRejectRequest(pendingRequest),
+                  )
+                else
+                  const _WalletMessageCard(
+                    message: '現在、承認待ちのリクエストはありません。',
+                  ),
+                const SizedBox(height: 16),
+                _WalletTransactionList(
+                  transactions: recentTransactions,
+                  currencyCode: currencyCode,
+                  onViewAll: () => _openWalletScreen(currencyCode),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
   Widget _buildSettingsSection() {
     final communityName = _community?.name ?? 'コミュニティ';
-    const notificationMode = '@メンションのみ';
+    final notificationMode =
+        _notificationModeLabel(_community?.notificationDefault ?? '@mentions');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -597,14 +833,14 @@ class _CommunityMemberSelectScreenState
           icon: Icons.edit_outlined,
           title: 'コミュニティ名',
           subtitle: communityName,
-          onTap: () => _showNotImplemented('コミュニティ名編集'),
+          onTap: _editCommunityName,
         ),
         const SizedBox(height: 12),
         _SettingsListTile(
           icon: Icons.photo_library_outlined,
           title: 'アイコンとカバー',
           subtitle: '変更',
-          onTap: () => _showNotImplemented('アイコンとカバー設定'),
+          onTap: _editCommunityImages,
         ),
         const SizedBox(height: 24),
         const _SettingsSectionTitle('通知・表示'),
@@ -613,7 +849,7 @@ class _CommunityMemberSelectScreenState
           icon: Icons.notifications_active_outlined,
           title: '通知の既定',
           subtitle: notificationMode,
-          onTap: () => _showNotImplemented('通知設定'),
+          onTap: _changeNotificationDefault,
         ),
         const SizedBox(height: 24),
         const _SettingsSectionTitle('参加設定'),
@@ -623,7 +859,9 @@ class _CommunityMemberSelectScreenState
           title: '参加承認',
           description: '参加に管理者の承認を必要とする',
           value: _requireApprovalSetting,
-          onChanged: (value) => setState(() => _requireApprovalSetting = value),
+          onChanged: _toggleApprovalSetting,
+          enabled: !_updatingApprovalSetting,
+          loading: _updatingApprovalSetting,
         ),
         const SizedBox(height: 12),
         _SettingsToggleTile(
@@ -631,7 +869,9 @@ class _CommunityMemberSelectScreenState
           title: '公開設定',
           description: 'コミュニティを検索可能にする',
           value: _isDiscoverableSetting,
-          onChanged: (value) => setState(() => _isDiscoverableSetting = value),
+          onChanged: _toggleDiscoverableSetting,
+          enabled: !_updatingDiscoverableSetting,
+          loading: _updatingDiscoverableSetting,
         ),
         const SizedBox(height: 24),
         const _SettingsSectionTitle('Danger Zone'),
@@ -639,13 +879,17 @@ class _CommunityMemberSelectScreenState
         _DangerZoneTile(
           title: 'コミュニティから退出する',
           description: 'この操作は元に戻せません。',
-          onTap: () => _showNotImplemented('コミュニティ退出'),
+          onTap: _confirmLeaveCommunity,
+          enabled: !_leavingCommunity,
+          loading: _leavingCommunity,
         ),
         const SizedBox(height: 12),
         _DangerZoneTile(
           title: 'コミュニティを削除する',
           description: 'すべてのデータが完全に削除されます。',
-          onTap: () => _showNotImplemented('コミュニティ削除'),
+          onTap: _confirmDeleteCommunity,
+          enabled: !_deletingCommunity,
+          loading: _deletingCommunity,
         ),
       ],
     );
@@ -655,7 +899,20 @@ class _CommunityMemberSelectScreenState
     final treasury = _community?.treasury;
     final balance = treasury?.balance ?? 0;
     final reserve = treasury?.initialGrant ?? 0;
-    final circulation = balance - reserve;
+    final allowMinting = _community?.currency.allowMinting ?? true;
+    final isOwner = _community?.ownerUid == widget.currentUserUid;
+    final permissionMembers = [
+      for (final member in _members)
+        if (member.membership.canManageBank)
+          _BankPermissionMember(
+            uid: member.membership.userId,
+            name: member.displayName,
+            role: member.membership.role,
+            avatarUrl: _MemberAvatar._tryGetAvatarUrl(member.profile),
+            locked: member.membership.role.toLowerCase() == 'owner',
+          ),
+    ]
+      ..sort((a, b) => a.name.compareTo(b.name));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -663,12 +920,14 @@ class _CommunityMemberSelectScreenState
           balance: balance,
           reserve: reserve,
           currencyCode: currencyCode,
-          allowMinting: _community?.currency.allowMinting ?? true,
+          allowMinting: allowMinting,
         ),
         const SizedBox(height: 16),
         _BankPrimaryActions(
-          onMint: () => _showNotImplemented('Mint'),
-          onBurn: () => _showNotImplemented('Burn'),
+          onMint: () => _handleMint(currencyCode),
+          onBurn: () => _handleBurn(currencyCode),
+          minting: _minting,
+          burning: _burning,
         ),
         const SizedBox(height: 16),
         _BankCurrencyList(
@@ -678,30 +937,19 @@ class _CommunityMemberSelectScreenState
         const SizedBox(height: 16),
         _BankPolicyCard(
           dualApprovalEnabled: _dualApprovalEnabled,
-          onToggleDualApproval: (value) =>
-              setState(() => _dualApprovalEnabled = value),
+          onToggleDualApproval: _toggleDualApproval,
           mintRolesLabel: 'Owner, BankAdmin',
           dailyLimit: '100,000 $currencyCode',
+          processing: _dualApprovalUpdating,
         ),
         const SizedBox(height: 16),
         _BankPermissionCard(
-          members: const [
-            _BankPermissionMember(
-              name: '田中',
-              role: 'Owner',
-              avatarUrl: null,
-              locked: true,
-            ),
-            _BankPermissionMember(
-              name: '鈴木',
-              role: 'BankAdmin',
-              avatarUrl: null,
-              locked: false,
-            ),
-          ],
-          onAddMember: () => _showNotImplemented('権限メンバー追加'),
-          onRemoveMember: (name) =>
-              _showNotImplemented('権限メンバー削除: $name'),
+          members: permissionMembers,
+          onAddMember: _handleAddBankManager,
+          onRemoveMember: _handleRemoveBankManager,
+          canModify: isOwner,
+          adding: _addingBankManager,
+          updatingUid: _bankPermissionUpdatingUid,
         ),
       ],
     );
@@ -721,8 +969,8 @@ class _CommunityMemberSelectScreenState
           _community = community;
           _communityError = null;
           _requireApprovalSetting = community.policy.requiresApproval;
-          _isDiscoverableSetting =
-              community.visibility.balanceMode != 'private';
+          _isDiscoverableSetting = community.discoverable;
+          _dualApprovalEnabled = community.treasury.dualApprovalEnabled;
         });
       } catch (e, stack) {
         debugPrint('Failed to parse community snapshot: $e\n$stack');
@@ -789,6 +1037,1350 @@ class _CommunityMemberSelectScreenState
         }
       },
     );
+  }
+
+  void _handleTalkSearchChanged() {
+    final query = _talkSearchController.text.trim();
+    if (query == _talkSearchQuery) {
+      return;
+    }
+    setState(() => _talkSearchQuery = query);
+  }
+
+  _SelectableMember? _findMemberByUid(String uid) {
+    for (final member in _members) {
+      if (member.membership.userId == uid) {
+        return member;
+      }
+    }
+    return null;
+  }
+
+  String? get _currentUserDisplayName {
+    final self = _findMemberByUid(widget.currentUserUid);
+    if (self != null) {
+      return self.displayName;
+    }
+    return FirebaseAuth.instance.currentUser?.displayName;
+  }
+
+  DateTime? _parseTimestamp(dynamic value) {
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is num) {
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    }
+    if (value is String && value.isNotEmpty) {
+      return DateTime.tryParse(value);
+    }
+    return null;
+  }
+
+  bool _detectMention(String message, String senderUid) {
+    if (message.isEmpty || senderUid == widget.currentUserUid) {
+      return false;
+    }
+    final lower = message.toLowerCase();
+    final displayName = _currentUserDisplayName?.toLowerCase();
+    if (displayName != null && displayName.isNotEmpty) {
+      if (lower.contains('@$displayName')) {
+        return true;
+      }
+    }
+    return lower.contains('@${widget.currentUserUid.toLowerCase()}');
+  }
+
+  Future<_TalkChannelEntry?> _createTalkEntry(
+      QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    try {
+      final data = doc.data();
+      final participants =
+          (data['participants'] as List<dynamic>?)?.cast<String>() ?? const [];
+      final partnerUid = participants
+          .firstWhere((uid) => uid != widget.currentUserUid, orElse: () => '');
+      if (partnerUid.isEmpty) return null;
+
+      final member = _findMemberByUid(partnerUid);
+      String displayName = member?.displayName ?? partnerUid;
+      String? photoUrl = _MemberAvatar._tryGetAvatarUrl(member?.profile);
+      String memberRole = member?.membership.role ?? 'member';
+
+      if (member == null) {
+        final userSnap =
+            await FirebaseFirestore.instance.doc('users/$partnerUid').get();
+        final userData = userSnap.data();
+        if (userData != null) {
+          final candidate = (userData['displayName'] as String?)?.trim();
+          if (candidate != null && candidate.isNotEmpty) {
+            displayName = candidate;
+          }
+          for (final key in const [
+            'photoUrl',
+            'photoURL',
+            'avatarUrl',
+            'imageUrl',
+            'iconUrl'
+          ]) {
+            final value = (userData[key] as String?)?.trim();
+            if (value != null && value.isNotEmpty) {
+              photoUrl = value;
+              break;
+            }
+          }
+        }
+
+        final membershipSnap = await FirebaseFirestore.instance
+            .doc('memberships/${FirestoreRefs.membershipId(widget.communityId, partnerUid)}')
+            .get();
+        final membershipData = membershipSnap.data();
+        if (membershipData != null) {
+          final role = (membershipData['role'] as String?)?.trim();
+          if (role != null && role.isNotEmpty) {
+            memberRole = role;
+          }
+        }
+      }
+
+      final lastMessage = (data['lastMessage'] as String?) ?? '';
+      final lastSenderUid = (data['lastSenderUid'] as String?) ?? '';
+      final unreadMap =
+          (data['unreadCounts'] as Map<String, dynamic>?) ?? const {};
+      final unreadValue = unreadMap[widget.currentUserUid];
+      final unread = unreadValue is num ? unreadValue.toInt() : 0;
+      final updatedAt = _parseTimestamp(data['updatedAt']);
+
+      final preview = lastMessage.isEmpty
+          ? 'メッセージはまだありません'
+          : (lastSenderUid == widget.currentUserUid
+              ? 'あなた: $lastMessage'
+              : '$displayName: $lastMessage');
+
+      final pinnedBy =
+          (data['pinnedBy'] as List<dynamic>?)?.cast<String>() ?? const [];
+      final hasMention = _detectMention(lastMessage, lastSenderUid);
+      final communityName =
+          _community?.name ?? widget.initialCommunityName ?? widget.communityId;
+
+      return _TalkChannelEntry(
+        threadId: doc.id,
+        communityId: widget.communityId,
+        communityName: communityName,
+        partnerUid: partnerUid,
+        partnerDisplayName: displayName,
+        previewText: preview,
+        updatedAt: updatedAt,
+        unreadCount: unread,
+        hasMention: hasMention,
+        isPinned: pinnedBy.contains(widget.currentUserUid),
+        partnerPhotoUrl: photoUrl,
+        memberRole: memberRole,
+      );
+    } catch (e, stack) {
+      debugPrint('Failed to build talk entry: $e\n$stack');
+      return null;
+    }
+  }
+
+  List<_TalkChannelEntry> _filterTalkEntries(List<_TalkChannelEntry> entries) {
+    final query = _talkSearchQuery.toLowerCase();
+    return [
+      for (final entry in entries)
+        if (_matchesTalkFilter(entry) &&
+            (query.isEmpty ||
+                ('${entry.partnerDisplayName} ${entry.previewText} ${entry.communityName}')
+                    .toLowerCase()
+                    .contains(query)))
+          entry
+    ];
+  }
+
+  bool _matchesTalkFilter(_TalkChannelEntry entry) {
+    switch (_talkFilter) {
+      case _TalkFilterOption.all:
+        return true;
+      case _TalkFilterOption.unread:
+        return entry.unreadCount > 0;
+      case _TalkFilterOption.mention:
+        return entry.hasMention;
+      case _TalkFilterOption.active:
+        return _isTalkEntryActive(entry);
+    }
+  }
+
+  bool _isTalkEntryActive(_TalkChannelEntry entry) {
+    if (entry.unreadCount > 0) {
+      return true;
+    }
+    final updated = entry.updatedAt;
+    if (updated == null) {
+      return false;
+    }
+    return updated.isAfter(DateTime.now().subtract(const Duration(days: 7)));
+  }
+
+  void _sortTalkEntries(List<_TalkChannelEntry> entries) {
+    entries.sort((a, b) {
+      final timeA = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final timeB = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return timeB.compareTo(timeA);
+    });
+  }
+
+  void _sortUnreadEntries(List<_TalkChannelEntry> entries) {
+    entries.sort((a, b) {
+      final unreadDiff = b.unreadCount.compareTo(a.unreadCount);
+      if (unreadDiff != 0) {
+        return unreadDiff;
+      }
+      final timeA = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final timeB = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return timeB.compareTo(timeA);
+    });
+  }
+
+  Future<void> _openTalkThread(_TalkChannelEntry entry) async {
+    if (_markingReadThreads.contains(entry.threadId)) {
+      return;
+    }
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || currentUser.uid != widget.currentUserUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('現在のユーザー情報を確認できませんでした。')),
+      );
+      return;
+    }
+    setState(() => _markingReadThreads.add(entry.threadId));
+    try {
+      await _chatService.markThreadAsRead(
+        communityId: entry.communityId,
+        threadId: entry.threadId,
+        userUid: widget.currentUserUid,
+      );
+    } catch (e) {
+      debugPrint('Failed to mark thread as read: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _markingReadThreads.remove(entry.threadId));
+      }
+    }
+
+    if (!mounted) return;
+    try {
+      await MemberChatScreen.open(
+        context,
+        communityId: entry.communityId,
+        communityName: entry.communityName,
+        currentUser: currentUser,
+        partnerUid: entry.partnerUid,
+        partnerDisplayName: entry.partnerDisplayName,
+        partnerPhotoUrl: entry.partnerPhotoUrl,
+        threadId: entry.threadId,
+        memberRole: entry.memberRole,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('チャットを開けませんでした: $e')),
+      );
+    }
+  }
+
+  Future<void> _toggleTalkPin(_TalkChannelEntry entry) async {
+    if (_pinningThreads.contains(entry.threadId)) {
+      return;
+    }
+    setState(() => _pinningThreads.add(entry.threadId));
+    try {
+      await FirebaseFirestore.instance
+          .collection('community_chats')
+          .doc(entry.communityId)
+          .collection('threads')
+          .doc(entry.threadId)
+          .set(
+        {
+          'pinnedBy': entry.isPinned
+              ? FieldValue.arrayRemove([widget.currentUserUid])
+              : FieldValue.arrayUnion([widget.currentUserUid]),
+        },
+        SetOptions(merge: true),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ピン留めを変更できませんでした: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _pinningThreads.remove(entry.threadId));
+      }
+    }
+  }
+
+  Future<void> _startDirectChat(_SelectableMember member) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || currentUser.uid != widget.currentUserUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('現在のユーザー情報を確認できませんでした。')),
+      );
+      return;
+    }
+    final partnerUid = member.membership.userId;
+    if (partnerUid == widget.currentUserUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('自分自身にはメッセージを送信できません。')),
+      );
+      return;
+    }
+    final communityName =
+        _community?.name ?? widget.initialCommunityName ?? widget.communityId;
+    final threadId = ChatService.buildThreadId(currentUser.uid, partnerUid);
+    final photoUrl = _MemberAvatar._tryGetAvatarUrl(member.profile);
+    try {
+      await MemberChatScreen.open(
+        context,
+        communityId: widget.communityId,
+        communityName: communityName,
+        currentUser: currentUser,
+        partnerUid: partnerUid,
+        partnerDisplayName: member.displayName,
+        partnerPhotoUrl: photoUrl,
+        threadId: threadId,
+        memberRole: member.membership.role,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('チャットを開けませんでした: $e')),
+      );
+    }
+  }
+
+  String _displayNameFor(String? uid) {
+    if (uid == null || uid.isEmpty) {
+      return '不明な相手';
+    }
+    if (uid == widget.currentUserUid) {
+      return 'あなた';
+    }
+    if (uid == kCentralBankUid) {
+      return '中央銀行';
+    }
+    final member = _findMemberByUid(uid);
+    if (member != null) {
+      return member.displayName;
+    }
+    return uid;
+  }
+
+  Future<void> _handleWalletAction(String label, String currencyCode) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || currentUser.uid != widget.currentUserUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('現在のユーザー情報を確認できませんでした。')),
+      );
+      return;
+    }
+    try {
+      switch (label) {
+        case '送る':
+          await TransactionFlowScreen.open(
+            context,
+            user: currentUser,
+            communityId: widget.communityId,
+            initialKind: TransactionKind.transfer,
+          );
+          break;
+        case '請求':
+          await TransactionFlowScreen.open(
+            context,
+            user: currentUser,
+            communityId: widget.communityId,
+            initialKind: TransactionKind.request,
+          );
+          break;
+        case '割り勘':
+          await TransactionFlowScreen.open(
+            context,
+            user: currentUser,
+            communityId: widget.communityId,
+            initialKind: TransactionKind.split,
+          );
+          break;
+        case 'タスク':
+          await _showCreateTaskDialog(currencyCode);
+          break;
+        default:
+          break;
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('操作に失敗しました: $e')),
+      );
+    }
+  }
+
+  Future<void> _openWalletScreen(String currencyCode) async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || currentUser.uid != widget.currentUserUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('現在のユーザー情報を確認できませんでした。')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => WalletScreen(user: currentUser),
+      ),
+    );
+  }
+
+  Future<void> _handleApproveRequest(
+      PaymentRequest request, String currencyCode) async {
+    if (_processingRequestId != null) {
+      return;
+    }
+    setState(() => _processingRequestId = request.id);
+    try {
+      await _requestService.approveRequest(
+        communityId: request.communityId,
+        requestId: request.id,
+        approvedBy: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      final requester = _displayNameFor(request.fromUid);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$requester の請求を承認しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('承認に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _processingRequestId = null);
+      }
+    }
+  }
+
+  Future<void> _handleRejectRequest(PaymentRequest request) async {
+    if (_processingRequestId != null) {
+      return;
+    }
+    setState(() => _processingRequestId = request.id);
+    try {
+      await _requestService.rejectRequest(
+        communityId: request.communityId,
+        requestId: request.id,
+        rejectedBy: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      final requester = _displayNameFor(request.fromUid);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$requester の請求を却下しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('却下に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _processingRequestId = null);
+      }
+    }
+  }
+
+  Future<void> _showCreateTaskDialog(String currencyCode) async {
+    final titleCtrl = TextEditingController();
+    final rewardCtrl = TextEditingController();
+    final memoCtrl = TextEditingController();
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          bool submitting = false;
+          return StatefulBuilder(
+            builder: (context, setState) {
+              Future<void> submit() async {
+                final title = titleCtrl.text.trim();
+                final rewardValue = rewardCtrl.text.trim();
+                final reward = num.tryParse(rewardValue);
+                if (title.isEmpty || reward == null || reward <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('タイトルと正しい金額を入力してください。')),
+                  );
+                  return;
+                }
+                setState(() => submitting = true);
+                try {
+                  await _taskService.createTask(
+                    communityId: widget.communityId,
+                    title: title,
+                    description: memoCtrl.text.trim().isEmpty
+                        ? null
+                        : memoCtrl.text.trim(),
+                    reward: reward,
+                    createdBy: widget.currentUserUid,
+                  );
+                  if (!mounted) return;
+                  Navigator.of(dialogContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content:
+                          Text('タスク「$title」を作成しました ($reward $currencyCode)'),
+                    ),
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('タスクの作成に失敗しました: $e')),
+                  );
+                } finally {
+                  if (mounted) {
+                    setState(() => submitting = false);
+                  }
+                }
+              }
+
+              return AlertDialog(
+                title: const Text('新しいタスクを作成'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: titleCtrl,
+                        decoration: const InputDecoration(labelText: 'タイトル'),
+                        textInputAction: TextInputAction.next,
+                      ),
+                      TextField(
+                        controller: rewardCtrl,
+                        decoration:
+                            InputDecoration(labelText: '報酬 ($currencyCode)'),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          signed: false,
+                          decimal: true,
+                        ),
+                        textInputAction: TextInputAction.next,
+                      ),
+                      TextField(
+                        controller: memoCtrl,
+                        decoration: const InputDecoration(labelText: 'メモ (任意)'),
+                        maxLines: 3,
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: submitting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  FilledButton(
+                    onPressed: submitting ? null : submit,
+                    child: submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('作成'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      titleCtrl.dispose();
+      rewardCtrl.dispose();
+      memoCtrl.dispose();
+    }
+  }
+
+  Future<void> _handleBulkRequest(String currencyCode) async {
+    final targets = _selectedUids
+        .where((uid) => uid != widget.currentUserUid)
+        .toList(growable: false);
+    if (targets.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('自分以外のメンバーを選択してください。')),
+      );
+      return;
+    }
+    final input = await _showBulkRequestDialog(currencyCode);
+    if (input == null) {
+      return;
+    }
+    final precision = _community?.currency.precision ?? 0;
+    setState(() => _bulkActionInProgress = true);
+    try {
+      await _requestService.createSplitRequests(
+        communityId: widget.communityId,
+        requesterUid: widget.currentUserUid,
+        targetUids: targets,
+        totalAmount: input.totalAmount,
+        precision: precision,
+        roundingMode: SplitRoundingMode.even,
+        memo: input.memo,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              '選択した${targets.length}人に${input.totalAmount.toStringAsFixed(0)} $currencyCode を請求しました'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('まとめて請求に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _bulkActionInProgress = false);
+      }
+    }
+  }
+
+  Future<_SplitRequestInput?> _showBulkRequestDialog(
+      String currencyCode) async {
+    final amountCtrl = TextEditingController();
+    final memoCtrl = TextEditingController();
+    try {
+      return await showDialog<_SplitRequestInput>(
+        context: context,
+        builder: (dialogContext) {
+          bool submitting = false;
+          return StatefulBuilder(
+            builder: (context, setState) {
+              Future<void> submit() async {
+                final total = num.tryParse(amountCtrl.text.trim());
+                if (total == null || total <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('正しい金額を入力してください。')),
+                  );
+                  return;
+                }
+                setState(() => submitting = true);
+                Navigator.of(dialogContext).pop(
+                  _SplitRequestInput(
+                    totalAmount: total,
+                    memo: memoCtrl.text.trim().isEmpty
+                        ? null
+                        : memoCtrl.text.trim(),
+                  ),
+                );
+              }
+
+              return AlertDialog(
+                title: const Text('まとめて請求'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: amountCtrl,
+                        decoration: InputDecoration(
+                          labelText: '合計金額 ($currencyCode)',
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: false,
+                        ),
+                        textInputAction: TextInputAction.next,
+                      ),
+                      TextField(
+                        controller: memoCtrl,
+                        decoration: const InputDecoration(labelText: 'メモ (任意)'),
+                        maxLines: 2,
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: submitting
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('キャンセル'),
+                  ),
+                  FilledButton(
+                    onPressed: submitting ? null : submit,
+                    child: submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('請求'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      amountCtrl.dispose();
+      memoCtrl.dispose();
+    }
+  }
+
+  Future<void> _handleBulkMessage() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || currentUser.uid != widget.currentUserUid) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('現在のユーザー情報を確認できませんでした。')),
+      );
+      return;
+    }
+    if (_selectedUids.isEmpty) {
+      return;
+    }
+    final message = await _showBulkMessageDialog();
+    if (message == null || message.trim().isEmpty) {
+      return;
+    }
+    setState(() => _bulkActionInProgress = true);
+    try {
+      for (final uid in _selectedUids) {
+        if (uid == widget.currentUserUid) continue;
+        await _chatService.sendMessage(
+          communityId: widget.communityId,
+          senderUid: currentUser.uid,
+          receiverUid: uid,
+          message: message,
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('選択したメンバーにメッセージを送信しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('メッセージ送信に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _bulkActionInProgress = false);
+      }
+    }
+  }
+
+  Future<String?> _showBulkMessageDialog() async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('一括メッセージ'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: 'メッセージ内容',
+                hintText: '全員に送るメッセージ',
+              ),
+              maxLines: 4,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(controller.text.trim()),
+                child: const Text('送信'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  String _notificationModeLabel(String value) {
+    switch (value) {
+      case 'all':
+        return 'すべての通知';
+      case 'none':
+        return '通知しない';
+      default:
+        return '@メンションのみ';
+    }
+  }
+
+  Future<void> _editCommunityName() async {
+    final controller = TextEditingController(text: _community?.name ?? '');
+    try {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('コミュニティ名を編集'),
+            content: TextField(
+              controller: controller,
+              decoration: const InputDecoration(labelText: 'コミュニティ名'),
+              textInputAction: TextInputAction.done,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(controller.text.trim()),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      );
+      if (name == null) {
+        return;
+      }
+      if (name.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('名称を入力してください。')),
+        );
+        return;
+      }
+      await _communityService.updateCommunityName(
+        communityId: widget.communityId,
+        name: name,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('コミュニティ名を「$name」に更新しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('コミュニティ名の更新に失敗しました: $e')),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _editCommunityImages() async {
+    final iconCtrl = TextEditingController(text: _community?.iconUrl ?? '');
+    final coverCtrl = TextEditingController(text: _community?.coverUrl ?? '');
+    try {
+      final result = await showDialog<Map<String, String?>>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('アイコン / カバーを更新'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: iconCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'アイコンURL',
+                      hintText: 'https://example.com/icon.png',
+                    ),
+                  ),
+                  TextField(
+                    controller: coverCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'カバー画像URL',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop({
+                  'icon': iconCtrl.text.trim().isEmpty
+                      ? null
+                      : iconCtrl.text.trim(),
+                  'cover': coverCtrl.text.trim().isEmpty
+                      ? null
+                      : coverCtrl.text.trim(),
+                }),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      );
+      if (result == null) return;
+      await _communityService.updateCommunityImages(
+        communityId: widget.communityId,
+        iconUrl: result['icon'],
+        coverUrl: result['cover'],
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('画像設定を更新しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('画像設定の更新に失敗しました: $e')),
+      );
+    } finally {
+      iconCtrl.dispose();
+      coverCtrl.dispose();
+    }
+  }
+
+  Future<void> _changeNotificationDefault() async {
+    final currentValue = _community?.notificationDefault ?? '@mentions';
+    final options = {
+      'all': 'すべての通知',
+      '@mentions': '@メンションのみ',
+      'none': '通知しない',
+    };
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text('通知の既定を選択'),
+              ),
+              for (final entry in options.entries)
+                RadioListTile<String>(
+                  value: entry.key,
+                  groupValue: currentValue,
+                  title: Text(entry.value),
+                  onChanged: (value) => Navigator.of(context).pop(value),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (selected == null || selected == currentValue) {
+      return;
+    }
+    try {
+      await _communityService.updateNotificationDefault(
+        communityId: widget.communityId,
+        notificationDefault: selected,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('通知設定を「${options[selected]}」に更新しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('通知設定の更新に失敗しました: $e')),
+      );
+    }
+  }
+
+  Future<void> _toggleApprovalSetting(bool value) async {
+    if (_updatingApprovalSetting) return;
+    setState(() {
+      _updatingApprovalSetting = true;
+      _requireApprovalSetting = value;
+    });
+    try {
+      await _communityService.updateJoinApproval(
+        communityId: widget.communityId,
+        requiresApproval: value,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _requireApprovalSetting = !value);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('参加承認設定の更新に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _updatingApprovalSetting = false);
+      }
+    }
+  }
+
+  Future<void> _toggleDiscoverableSetting(bool value) async {
+    if (_updatingDiscoverableSetting) return;
+    setState(() {
+      _updatingDiscoverableSetting = true;
+      _isDiscoverableSetting = value;
+    });
+    try {
+      await _communityService.updateDiscoverable(
+        communityId: widget.communityId,
+        discoverable: value,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isDiscoverableSetting = !value);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('公開設定の更新に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _updatingDiscoverableSetting = false);
+      }
+    }
+  }
+
+  Future<void> _confirmLeaveCommunity() async {
+    if (_leavingCommunity) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('コミュニティから退出しますか？'),
+          content: const Text('この操作は元に戻せません。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('退出する'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm != true) return;
+    setState(() => _leavingCommunity = true);
+    try {
+      await _communityService.leaveCommunity(
+        communityId: widget.communityId,
+        userId: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('コミュニティから退出しました')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('退出に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _leavingCommunity = false);
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteCommunity() async {
+    if (_deletingCommunity) return;
+    final controller = TextEditingController();
+    final name = _community?.name ?? widget.communityId;
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('コミュニティを削除しますか？'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('この操作は取り消せません。削除するには "$name" と入力してください。'),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: controller,
+                  decoration: const InputDecoration(
+                    labelText: '確認のために入力',
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final input = controller.text.trim();
+                  Navigator.of(dialogContext).pop(input == name);
+                },
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('削除する'),
+              ),
+            ],
+          );
+        },
+      );
+      if (confirmed != true) {
+        return;
+      }
+      setState(() => _deletingCommunity = true);
+      await _communityService.deleteCommunity(
+        communityId: widget.communityId,
+        performedBy: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('コミュニティを削除しました')),
+      );
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('削除に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _deletingCommunity = false);
+      }
+      controller.dispose();
+    }
+  }
+
+  Future<void> _handleMint(String currencyCode) async {
+    final amount = await _promptAmountDialog('発行 (Mint)', currencyCode);
+    if (amount == null) return;
+    if (amount <= 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('1以上の金額を入力してください。')),
+      );
+      return;
+    }
+    setState(() => _minting = true);
+    try {
+      await _communityService.adjustTreasuryBalance(
+        communityId: widget.communityId,
+        delta: amount,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${amount.toStringAsFixed(0)} $currencyCode を発行しました'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('発行に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _minting = false);
+      }
+    }
+  }
+
+  Future<void> _handleBurn(String currencyCode) async {
+    final amount = await _promptAmountDialog('回収 (Burn)', currencyCode);
+    if (amount == null) return;
+    if (amount <= 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('1以上の金額を入力してください。')),
+      );
+      return;
+    }
+    setState(() => _burning = true);
+    try {
+      await _communityService.adjustTreasuryBalance(
+        communityId: widget.communityId,
+        delta: -amount,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${amount.toStringAsFixed(0)} $currencyCode を回収しました'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('回収に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _burning = false);
+      }
+    }
+  }
+
+  Future<void> _handleAddBankManager() async {
+    if (_addingBankManager) return;
+    final candidates = _members
+        .where((member) =>
+            !member.membership.canManageBank && !member.membership.pending)
+        .toList();
+    if (candidates.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('追加できるメンバーがいません。')),
+      );
+      return;
+    }
+    final selectedUid = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(
+                title: Text('権限を付与するメンバーを選択'),
+              ),
+              for (final member in candidates)
+                ListTile(
+                  leading: CircleAvatar(
+                    child: Text(member.displayName.characters.first),
+                  ),
+                  title: Text(member.displayName),
+                  subtitle: Text(member.membership.role),
+                  onTap: () => Navigator.of(context).pop(member.membership.userId),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+    if (selectedUid == null) return;
+    setState(() => _addingBankManager = true);
+    try {
+      await _communityService.setBankManagementPermission(
+        communityId: widget.communityId,
+        targetUid: selectedUid,
+        enabled: true,
+        updatedBy: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      final member = candidates.firstWhere((m) => m.membership.userId == selectedUid);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${member.displayName} を権限メンバーに追加しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('権限の付与に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _addingBankManager = false);
+      }
+    }
+  }
+
+  Future<void> _handleRemoveBankManager(String uid) async {
+    if (_bankPermissionUpdatingUid != null) return;
+    setState(() => _bankPermissionUpdatingUid = uid);
+    try {
+      await _communityService.setBankManagementPermission(
+        communityId: widget.communityId,
+        targetUid: uid,
+        enabled: false,
+        updatedBy: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('権限を解除しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('権限の解除に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _bankPermissionUpdatingUid = null);
+      }
+    }
+  }
+
+  Future<void> _toggleDualApproval(bool value) async {
+    if (_dualApprovalUpdating) return;
+    setState(() {
+      _dualApprovalUpdating = true;
+      _dualApprovalEnabled = value;
+    });
+    try {
+      await _communityService.updateTreasurySettings(
+        communityId: widget.communityId,
+        dualApprovalEnabled: value,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _dualApprovalEnabled = !value);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('二重承認設定の更新に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _dualApprovalUpdating = false);
+      }
+    }
+  }
+
+  Future<num?> _promptAmountDialog(String title, String currencyCode) async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<num>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: controller,
+              decoration:
+                  InputDecoration(labelText: '金額 ($currencyCode)'),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+                signed: false,
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('キャンセル'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final value = num.tryParse(controller.text.trim());
+                  Navigator.of(dialogContext).pop(value);
+                },
+                child: const Text('実行'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
   Future<void> _handleMembersSnapshot(
@@ -2504,11 +4096,13 @@ class _DashboardSearchField extends StatelessWidget {
 class _FilterChipConfig {
   const _FilterChipConfig({
     required this.label,
+    this.value,
     this.isPrimary = false,
     this.trailingBadge,
   });
 
   final String label;
+  final Object? value;
   final bool isPrimary;
   final String? trailingBadge;
 }
@@ -2516,11 +4110,13 @@ class _FilterChipConfig {
 class _ScrollableFilterRow extends StatelessWidget {
   const _ScrollableFilterRow({
     required this.filters,
+    this.activeValue,
     this.onFilterTap,
   });
 
   final List<_FilterChipConfig> filters;
-  final ValueChanged<String>? onFilterTap;
+  final Object? activeValue;
+  final ValueChanged<_FilterChipConfig>? onFilterTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2531,40 +4127,42 @@ class _ScrollableFilterRow extends StatelessWidget {
           for (final filter in filters)
             Padding(
               padding: const EdgeInsets.only(right: 8),
-          child: GestureDetector(
-            onTap: () => onFilterTap?.call(filter.label),
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 8,
-              ),
-              decoration: BoxDecoration(
-                color: filter.isPrimary ? _kMainBlue : Colors.white,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: filter.isPrimary
-                      ? _kMainBlue
-                      : const Color(0xFFE2E8F0),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    filter.label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: filter.isPrimary ? Colors.white : _kTextMain,
+              child: GestureDetector(
+                onTap: () => onFilterTap?.call(filter),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _isFilterActive(filter) ? _kMainBlue : Colors.white,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: _isFilterActive(filter)
+                          ? _kMainBlue
+                          : const Color(0xFFE2E8F0),
                     ),
                   ),
-                  if (filter.trailingBadge != null) ...[
-                    const SizedBox(width: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        filter.label,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: _isFilterActive(filter)
+                              ? Colors.white
+                              : _kTextMain,
+                        ),
+                      ),
+                      if (filter.trailingBadge != null) ...[
+                        const SizedBox(width: 8),
                         Container(
                           width: 20,
                           height: 20,
                           decoration: BoxDecoration(
-                            color: filter.isPrimary
+                            color: _isFilterActive(filter)
                                 ? Colors.white.withOpacity(0.2)
                                 : _kAccentOrange,
                             borderRadius: BorderRadius.circular(999),
@@ -2589,40 +4187,43 @@ class _ScrollableFilterRow extends StatelessWidget {
       ),
     );
   }
+
+  bool _isFilterActive(_FilterChipConfig filter) {
+    if (activeValue == null) {
+      return filter.isPrimary;
+    }
+    return filter.value == activeValue;
+  }
 }
 
 class _TalkChannelEntry {
   const _TalkChannelEntry({
-    required this.title,
-    required this.subtitle,
-    required this.timeLabel,
-    this.unreadCount,
-    this.hasMention = false,
-    this.highlightColor,
-    this.borderColor,
-    this.highlightBadge,
-    this.mentionColor = _kMainBlue,
-    this.inlineIcon,
-    this.leadingIcon,
-    this.leadingLabel = '#',
-    this.leadingBackgroundColor = const Color(0xFFF1F5F9),
-    this.leadingForegroundColor = _kTextSub,
+    required this.threadId,
+    required this.communityId,
+    required this.communityName,
+    required this.partnerUid,
+    required this.partnerDisplayName,
+    required this.previewText,
+    required this.updatedAt,
+    required this.unreadCount,
+    required this.hasMention,
+    required this.isPinned,
+    required this.partnerPhotoUrl,
+    required this.memberRole,
   });
 
-  final String title;
-  final String subtitle;
-  final String timeLabel;
-  final int? unreadCount;
+  final String threadId;
+  final String communityId;
+  final String communityName;
+  final String partnerUid;
+  final String partnerDisplayName;
+  final String previewText;
+  final DateTime? updatedAt;
+  final int unreadCount;
   final bool hasMention;
-  final Color? highlightColor;
-  final Color? borderColor;
-  final String? highlightBadge;
-  final Color mentionColor;
-  final IconData? inlineIcon;
-  final IconData? leadingIcon;
-  final String leadingLabel;
-  final Color leadingBackgroundColor;
-  final Color leadingForegroundColor;
+  final bool isPinned;
+  final String? partnerPhotoUrl;
+  final String memberRole;
 }
 
 class _TalkChannelGroup extends StatelessWidget {
@@ -2630,14 +4231,21 @@ class _TalkChannelGroup extends StatelessWidget {
     required this.title,
     required this.entries,
     required this.onTapChannel,
+    required this.onTogglePin,
+    this.pinningThreadIds = const <String>{},
   });
 
   final String title;
   final List<_TalkChannelEntry> entries;
-  final ValueChanged<String> onTapChannel;
+  final ValueChanged<_TalkChannelEntry> onTapChannel;
+  final ValueChanged<_TalkChannelEntry> onTogglePin;
+  final Set<String> pinningThreadIds;
 
   @override
   Widget build(BuildContext context) {
+    if (entries.isEmpty) {
+      return const SizedBox.shrink();
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2657,7 +4265,9 @@ class _TalkChannelGroup extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 12),
             child: _TalkChannelCard(
               entry: entry,
-              onTap: () => onTapChannel(entry.title),
+              onTap: () => onTapChannel(entry),
+              onTogglePin: () => onTogglePin(entry),
+              pinInProgress: pinningThreadIds.contains(entry.threadId),
             ),
           ),
       ],
@@ -2669,30 +4279,33 @@ class _TalkChannelCard extends StatelessWidget {
   const _TalkChannelCard({
     required this.entry,
     required this.onTap,
+    required this.onTogglePin,
+    this.pinInProgress = false,
   });
 
   final _TalkChannelEntry entry;
   final VoidCallback onTap;
+  final VoidCallback onTogglePin;
+  final bool pinInProgress;
 
   @override
   Widget build(BuildContext context) {
-    final backgroundColor = entry.highlightColor ?? Colors.white;
-    final borderColor = entry.borderColor ??
-        (entry.highlightColor != null
-            ? entry.highlightColor!.withOpacity(0.4)
-            : const Color(0xFFE2E8F0));
+    final borderColor = entry.isPinned
+        ? _kAccentOrange.withOpacity(0.4)
+        : const Color(0xFFE2E8F0);
+    final timeLabel = _formatTalkCardTime(entry.updatedAt);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Ink(
         decoration: BoxDecoration(
-          color: backgroundColor,
+          color: Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: borderColor),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x0A000000),
-              blurRadius: 14,
+              color: Color(0x0C000000),
+              blurRadius: 12,
               offset: Offset(0, 6),
             ),
           ],
@@ -2700,53 +4313,27 @@ class _TalkChannelCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: entry.leadingBackgroundColor,
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: entry.leadingIcon != null
-                  ? Icon(entry.leadingIcon, color: entry.leadingForegroundColor)
-                  : Center(
-                      child: Text(
-                        entry.leadingLabel,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: entry.leadingForegroundColor,
-                        ),
-                      ),
-                    ),
+            _TalkAvatar(
+              photoUrl: entry.partnerPhotoUrl,
+              label: entry.partnerDisplayName,
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      if (entry.inlineIcon != null) ...[
-                        Icon(entry.inlineIcon, size: 16, color: _kTextSub),
-                        const SizedBox(width: 6),
-                      ],
-                      Expanded(
-                        child: Text(
-                          entry.title,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: _kTextMain,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
+                  Text(
+                    entry.partnerDisplayName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: _kTextMain,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    entry.subtitle,
+                    entry.previewText,
                     style: const TextStyle(fontSize: 13, color: _kTextSub),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -2759,31 +4346,137 @@ class _TalkChannelCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  entry.timeLabel,
+                  timeLabel,
                   style: const TextStyle(
                     fontSize: 11,
                     color: _kTextSub,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (entry.hasMention || entry.highlightBadge != null) ...[
-                  const SizedBox(height: 8),
-                  _TalkBadge(
-                    label: entry.highlightBadge ?? '@',
-                    backgroundColor: entry.mentionColor,
-                  ),
-                ],
-                if (entry.unreadCount != null && entry.unreadCount! > 0) ...[
-                  const SizedBox(height: 8),
-                  _TalkBadge(
-                    label: entry.unreadCount!.toString(),
-                    backgroundColor: _kMainBlue,
-                  ),
-                ],
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (entry.hasMention)
+                      const _TalkBadge(
+                        label: '@',
+                        backgroundColor: _kAccentOrange,
+                      ),
+                    if (entry.unreadCount > 0) ...[
+                      if (entry.hasMention) const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _kMainBlue,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          '${entry.unreadCount}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+                    IconButton(
+                      icon: Icon(
+                        entry.isPinned
+                            ? Icons.push_pin
+                            : Icons.push_pin_outlined,
+                        size: 18,
+                        color: entry.isPinned ? _kAccentOrange : _kTextSub,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: pinInProgress ? null : onTogglePin,
+                    ),
+                  ],
+                ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _TalkAvatar extends StatelessWidget {
+  const _TalkAvatar({required this.photoUrl, required this.label});
+
+  final String? photoUrl;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final fallback = CircleAvatar(
+      radius: 24,
+      backgroundColor: _kMainBlue.withOpacity(0.15),
+      child: Text(
+        _MemberAvatar._initials(label),
+        style: const TextStyle(
+          color: _kMainBlue,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+    final url = photoUrl?.trim();
+    if (url == null || url.isEmpty) {
+      return fallback;
+    }
+    return CircleAvatar(
+      radius: 24,
+      backgroundImage: NetworkImage(url),
+      onBackgroundImageError: (_, __) {},
+    );
+  }
+}
+
+String _formatTalkCardTime(DateTime? time) {
+  if (time == null) {
+    return '--:--';
+  }
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final target = DateTime(time.year, time.month, time.day);
+  if (target == today) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+  final yesterday = today.subtract(const Duration(days: 1));
+  if (target == yesterday) {
+    return '昨日';
+  }
+  if (now.year == time.year) {
+    return '${time.month}/${time.day}';
+  }
+  return '${time.year}/${time.month}/${time.day}';
+}
+
+class _TalkMessageCard extends StatelessWidget {
+  const _TalkMessageCard({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Text(
+        message,
+        style: const TextStyle(color: _kTextSub),
       ),
     );
   }
@@ -2916,6 +4609,108 @@ class _WalletActionButton extends StatelessWidget {
   }
 }
 
+class _WalletMessageCard extends StatelessWidget {
+  const _WalletMessageCard({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Text(
+        message,
+        style: const TextStyle(color: _kTextSub),
+      ),
+    );
+  }
+}
+
+class _SplitRequestInput {
+  const _SplitRequestInput({required this.totalAmount, this.memo});
+
+  final num totalAmount;
+  final String? memo;
+}
+
+class _BulkSelectionBar extends StatelessWidget {
+  const _BulkSelectionBar({
+    required this.count,
+    required this.onRequest,
+    required this.onMessage,
+    required this.processing,
+  });
+
+  final int count;
+  final VoidCallback onRequest;
+  final VoidCallback onMessage;
+  final bool processing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${count}人 選択中',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: _kTextMain,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: processing ? null : onMessage,
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  label: const Text('一括メッセージ'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: processing ? null : onRequest,
+                  icon: processing
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.request_quote_outlined),
+                  label: Text(processing ? '処理中...' : 'まとめて請求'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _WalletBalanceCard extends StatelessWidget {
   const _WalletBalanceCard({
     required this.currencyCode,
@@ -3034,6 +4829,7 @@ class _WalletApprovalCard extends StatelessWidget {
     required this.memo,
     required this.onApprove,
     required this.onReject,
+    this.processing = false,
   });
 
   final String requester;
@@ -3042,6 +4838,7 @@ class _WalletApprovalCard extends StatelessWidget {
   final String memo;
   final VoidCallback onApprove;
   final VoidCallback onReject;
+  final bool processing;
 
   @override
   Widget build(BuildContext context) {
@@ -3110,7 +4907,7 @@ class _WalletApprovalCard extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: onReject,
+                  onPressed: processing ? null : onReject,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: _kTextSub,
                     side: const BorderSide(color: Color(0xFFE2E8F0)),
@@ -3124,7 +4921,7 @@ class _WalletApprovalCard extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton(
-                  onPressed: onApprove,
+                  onPressed: processing ? null : onApprove,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _kAccentOrange,
                     foregroundColor: Colors.white,
@@ -3132,7 +4929,17 @@ class _WalletApprovalCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  child: const Text('承認'),
+                  child: processing
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text('承認'),
                 ),
               ),
             ],
@@ -3146,15 +4953,41 @@ class _WalletApprovalCard extends StatelessWidget {
 class _WalletTransaction {
   const _WalletTransaction({
     required this.title,
-    required this.subtitle,
     required this.amount,
     required this.type,
+    this.subtitle,
+    this.timestamp,
+    this.counterpartyUid,
   });
 
   final String title;
-  final String subtitle;
   final num amount;
   final WalletActivityType type;
+  final String? subtitle;
+  final DateTime? timestamp;
+  final String? counterpartyUid;
+}
+
+String _formatWalletTimestamp(DateTime? time) {
+  if (time == null) return '';
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final target = DateTime(time.year, time.month, time.day);
+  if (target == today) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+  final yesterday = today.subtract(const Duration(days: 1));
+  if (target == yesterday) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '昨日 $hour:$minute';
+  }
+  if (now.year == time.year) {
+    return '${time.month}/${time.day}';
+  }
+  return '${time.year}/${time.month}/${time.day}';
 }
 
 class _WalletTransactionList extends StatelessWidget {
@@ -3170,6 +5003,32 @@ class _WalletTransactionList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (transactions.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                '最近の取引',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: _kTextMain,
+                ),
+              ),
+              TextButton(
+                onPressed: onViewAll,
+                child: const Text('すべて表示'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const _WalletMessageCard(message: '最近の取引はありません。'),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -3209,6 +5068,8 @@ class _WalletTransactionList extends StatelessWidget {
                 _WalletTransactionTile(
                   transaction: transactions[i],
                   currencyCode: currencyCode,
+                  subtitle: transactions[i].subtitle ??
+                      _formatWalletTimestamp(transactions[i].timestamp),
                   showDivider: i != transactions.length - 1,
                 ),
             ],
@@ -3223,11 +5084,13 @@ class _WalletTransactionTile extends StatelessWidget {
   const _WalletTransactionTile({
     required this.transaction,
     required this.currencyCode,
+    required this.subtitle,
     required this.showDivider,
   });
 
   final _WalletTransaction transaction;
   final String currencyCode;
+  final String subtitle;
   final bool showDivider;
 
   @override
@@ -3269,7 +5132,7 @@ class _WalletTransactionTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      transaction.subtitle,
+                      subtitle,
                       style: const TextStyle(fontSize: 12, color: _kTextSub),
                     ),
                   ],
@@ -3531,6 +5394,8 @@ class _SettingsToggleTile extends StatelessWidget {
     required this.description,
     required this.value,
     required this.onChanged,
+    this.enabled = true,
+    this.loading = false,
   });
 
   final IconData icon;
@@ -3538,6 +5403,8 @@ class _SettingsToggleTile extends StatelessWidget {
   final String description;
   final bool value;
   final ValueChanged<bool> onChanged;
+  final bool enabled;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -3580,14 +5447,21 @@ class _SettingsToggleTile extends StatelessWidget {
               ],
             ),
           ),
-          Switch(
-            value: value,
-            onChanged: onChanged,
-            activeColor: Colors.white,
-            activeTrackColor: _kSubGreen,
-            inactiveThumbColor: Colors.white,
-            inactiveTrackColor: const Color(0xFFE2E8F0),
-          ),
+          if (loading)
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            Switch(
+              value: value,
+              onChanged: enabled ? onChanged : null,
+              activeColor: Colors.white,
+              activeTrackColor: _kSubGreen,
+              inactiveThumbColor: Colors.white,
+              inactiveTrackColor: const Color(0xFFE2E8F0),
+            ),
         ],
       ),
     );
@@ -3599,44 +5473,67 @@ class _DangerZoneTile extends StatelessWidget {
     required this.title,
     required this.description,
     required this.onTap,
+    this.enabled = true,
+    this.loading = false,
   });
 
   final String title;
   final String description;
   final VoidCallback onTap;
+  final bool enabled;
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Ink(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: const Color(0x33DC2626)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFFDC2626),
+    return Opacity(
+      opacity: enabled ? 1 : 0.6,
+      child: InkWell(
+        onTap: enabled && !loading ? onTap : null,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0x33DC2626)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      description,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              description,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFFDC2626),
-              ),
-            ),
-          ],
+              if (loading)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Color(0xFFDC2626)),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -3758,10 +5655,14 @@ class _BankPrimaryActions extends StatelessWidget {
   const _BankPrimaryActions({
     required this.onMint,
     required this.onBurn,
+    this.minting = false,
+    this.burning = false,
   });
 
   final VoidCallback onMint;
   final VoidCallback onBurn;
+  final bool minting;
+  final bool burning;
 
   @override
   Widget build(BuildContext context) {
@@ -3769,7 +5670,7 @@ class _BankPrimaryActions extends StatelessWidget {
       children: [
         Expanded(
           child: ElevatedButton(
-            onPressed: onMint,
+            onPressed: minting ? null : onMint,
             style: ElevatedButton.styleFrom(
               backgroundColor: _kMainBlue,
               foregroundColor: Colors.white,
@@ -3778,13 +5679,19 @@ class _BankPrimaryActions extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-            child: const Text('発行 (Mint)'),
+            child: minting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('発行 (Mint)'),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(
           child: OutlinedButton(
-            onPressed: onBurn,
+            onPressed: burning ? null : onBurn,
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFFDC2626),
               side: const BorderSide(color: Color(0x33DC2626)),
@@ -3793,7 +5700,17 @@ class _BankPrimaryActions extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-            child: const Text('回収 (Burn)'),
+            child: burning
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(Color(0xFFDC2626)),
+                    ),
+                  )
+                : const Text('回収 (Burn)'),
           ),
         ),
       ],
@@ -3950,12 +5867,14 @@ class _BankPolicyCard extends StatelessWidget {
     required this.onToggleDualApproval,
     required this.mintRolesLabel,
     required this.dailyLimit,
+    this.processing = false,
   });
 
   final bool dualApprovalEnabled;
   final ValueChanged<bool> onToggleDualApproval;
   final String mintRolesLabel;
   final String dailyLimit;
+  final bool processing;
 
   @override
   Widget build(BuildContext context) {
@@ -3982,14 +5901,20 @@ class _BankPolicyCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('二重承認'),
-              Switch(
-                value: dualApprovalEnabled,
-                onChanged: onToggleDualApproval,
-                activeColor: Colors.white,
-                activeTrackColor: _kSubGreen,
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: const Color(0xFFE2E8F0),
-              ),
+              processing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Switch(
+                      value: dualApprovalEnabled,
+                      onChanged: onToggleDualApproval,
+                      activeColor: Colors.white,
+                      activeTrackColor: _kSubGreen,
+                      inactiveThumbColor: Colors.white,
+                      inactiveTrackColor: const Color(0xFFE2E8F0),
+                    ),
             ],
           ),
           const Divider(height: 24),
@@ -4028,12 +5953,14 @@ class _BankPolicyCard extends StatelessWidget {
 
 class _BankPermissionMember {
   const _BankPermissionMember({
+    required this.uid,
     required this.name,
     required this.role,
     this.avatarUrl,
     this.locked = false,
   });
 
+  final String uid;
   final String name;
   final String role;
   final String? avatarUrl;
@@ -4045,11 +5972,17 @@ class _BankPermissionCard extends StatelessWidget {
     required this.members,
     required this.onAddMember,
     required this.onRemoveMember,
+    this.canModify = true,
+    this.adding = false,
+    this.updatingUid,
   });
 
   final List<_BankPermissionMember> members;
   final VoidCallback onAddMember;
   final ValueChanged<String> onRemoveMember;
+  final bool canModify;
+  final bool adding;
+  final String? updatingUid;
 
   @override
   Widget build(BuildContext context) {
@@ -4075,8 +6008,14 @@ class _BankPermissionCard extends StatelessWidget {
                 ),
               ),
               TextButton(
-                onPressed: onAddMember,
-                child: const Text('メンバーを追加'),
+                onPressed: canModify && !adding ? onAddMember : null,
+                child: adding
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('メンバーを追加'),
               ),
             ],
           ),
@@ -4087,6 +6026,8 @@ class _BankPermissionCard extends StatelessWidget {
               child: _BankPermissionTile(
                 member: member,
                 onRemove: onRemoveMember,
+                canModify: canModify,
+                removing: updatingUid == member.uid,
               ),
             ),
         ],
@@ -4099,10 +6040,14 @@ class _BankPermissionTile extends StatelessWidget {
   const _BankPermissionTile({
     required this.member,
     required this.onRemove,
+    required this.canModify,
+    required this.removing,
   });
 
   final _BankPermissionMember member;
   final ValueChanged<String> onRemove;
+  final bool canModify;
+  final bool removing;
 
   @override
   Widget build(BuildContext context) {
@@ -4178,9 +6123,17 @@ class _BankPermissionTile extends StatelessWidget {
             )
           else
             TextButton(
-              onPressed: () => onRemove(member.name),
-              style: TextButton.styleFrom(foregroundColor: const Color(0xFFDC2626)),
-              child: const Text('解除'),
+              onPressed:
+                  canModify && !removing ? () => onRemove(member.uid) : null,
+              style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFDC2626)),
+              child: removing
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('解除'),
             ),
         ],
       ),

@@ -39,6 +39,7 @@ class CommunityService {
       symbol: symbol,
       description: description,
       coverUrl: coverUrl,
+      iconUrl: null,
       discoverable: discoverable,
       ownerUid: ownerUid,
       adminUids: [ownerUid],
@@ -70,8 +71,15 @@ class CommunityService {
             postVisibilityDefault: 'community',
             requiresApproval: false,
           ),
-      visibility: visibility ?? const CommunityVisibility(balanceMode: 'private'),
-      treasury: treasury ?? const CommunityTreasury(balance: 0, initialGrant: 0),
+      visibility:
+          visibility ?? const CommunityVisibility(balanceMode: 'private'),
+      treasury: treasury ??
+          const CommunityTreasury(
+            balance: 0,
+            initialGrant: 0,
+            dualApprovalEnabled: false,
+          ),
+      notificationDefault: '@mentions',
     );
 
     final membership = Membership(
@@ -447,6 +455,93 @@ class CommunityService {
     });
   }
 
+  Future<void> updateCommunityName({
+    required String communityId,
+    required String name,
+  }) async {
+    await refs.communityDoc(communityId).update({
+      'name': name,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateCommunityImages({
+    required String communityId,
+    String? iconUrl,
+    String? coverUrl,
+  }) async {
+    final updates = <String, Object?>{
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (iconUrl != null) {
+      updates['iconUrl'] = iconUrl;
+    }
+    if (coverUrl != null) {
+      updates['coverUrl'] = coverUrl;
+    }
+    if (updates.length > 1) {
+      await refs.communityDoc(communityId).update(updates);
+    }
+  }
+
+  Future<void> updateNotificationDefault({
+    required String communityId,
+    required String notificationDefault,
+  }) async {
+    await refs.communityDoc(communityId).update({
+      'notificationDefault': notificationDefault,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateJoinApproval({
+    required String communityId,
+    required bool requiresApproval,
+  }) async {
+    await refs.communityDoc(communityId).update({
+      'policy.requiresApproval': requiresApproval,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> updateDiscoverable({
+    required String communityId,
+    required bool discoverable,
+  }) async {
+    await refs.communityDoc(communityId).update({
+      'discoverable': discoverable,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deleteCommunity({
+    required String communityId,
+    required String performedBy,
+  }) async {
+    final communityRef = refs.communityDoc(communityId);
+    await refs.raw.runTransaction((tx) async {
+      final snap = await tx.get(communityRef);
+      final community = snap.data();
+      if (community == null) {
+        throw StateError('コミュニティが見つかりません');
+      }
+      if (community.ownerUid != performedBy) {
+        throw StateError('コミュニティを削除できるのはオーナーのみです');
+      }
+      tx.delete(communityRef);
+    });
+
+    final membershipQuery = await refs.raw
+        .collection('memberships')
+        .where('cid', isEqualTo: communityId)
+        .get();
+    for (final doc in membershipQuery.docs) {
+      await doc.reference.delete();
+    }
+
+    await _purgeCommunityData(communityId);
+  }
+
   Future<void> _createJoinRequest(String communityId, String userId) async {
     final joinRef = refs.raw
         .collection('join_requests')
@@ -574,12 +669,16 @@ class CommunityService {
   Future<void> updateTreasurySettings({
     required String communityId,
     num? initialGrant,
+    bool? dualApprovalEnabled,
   }) async {
     final updates = <String, Object?>{
       'updatedAt': FieldValue.serverTimestamp(),
     };
     if (initialGrant != null) {
       updates['treasury.initialGrant'] = initialGrant;
+    }
+    if (dualApprovalEnabled != null) {
+      updates['treasury.dualApprovalEnabled'] = dualApprovalEnabled;
     }
     if (updates.length > 1) {
       await refs.communityDoc(communityId).update(updates);

@@ -24,6 +24,7 @@ class _CommunityJoinRequestsScreenState
     extends State<CommunityJoinRequestsScreen> {
   final CommunityService _communityService = CommunityService();
   String? _processingUid;
+  bool _bulkProcessing = false;
 
   @override
   Widget build(BuildContext context) {
@@ -34,45 +35,71 @@ class _CommunityJoinRequestsScreenState
         .where('status', isEqualTo: 'pending')
         .orderBy('createdAt', descending: true);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${widget.communityName}の参加申請'),
-      ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: query.snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('申請を取得できませんでした: ${snapshot.error}'),
-            );
-          }
-          final docs = snapshot.data?.docs ?? [];
-          if (docs.isEmpty) {
-            return const _EmptyJoinRequests();
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.all(20),
-            itemBuilder: (context, index) {
-              final doc = docs[index];
-              final data = doc.data();
-              final uid = (data['uid'] as String?) ?? '';
-              final createdAt = data['createdAt'];
-              return _JoinRequestTile(
-                userId: uid,
-                createdAt: createdAt,
-                processing: _processingUid == uid,
-                onApprove: () => _handleApprove(uid),
-                onReject: () => _handleReject(uid),
-              );
-            },
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemCount: docs.length,
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: query.snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
           );
-        },
-      ),
+        }
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(
+              title: Text('${widget.communityName}の参加申請'),
+            ),
+            body: Center(
+              child: Text('申請を取得できませんでした: ${snapshot.error}'),
+            ),
+          );
+        }
+        final docs = snapshot.data?.docs ?? [];
+        final pendingUids = <String>[
+          for (final doc in docs)
+            (doc.data()['uid'] as String?) ?? doc.id,
+        ];
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('${widget.communityName}の参加申請'),
+            actions: [
+              if (pendingUids.isNotEmpty)
+                IconButton(
+                  tooltip: 'すべて承認',
+                  onPressed:
+                      _bulkProcessing ? null : () => _approveAll(pendingUids),
+                  icon: const Icon(Icons.done_all_outlined),
+                ),
+              if (pendingUids.isNotEmpty)
+                IconButton(
+                  tooltip: 'すべて却下',
+                  onPressed:
+                      _bulkProcessing ? null : () => _rejectAll(pendingUids),
+                  icon: const Icon(Icons.clear_all_outlined),
+                ),
+            ],
+          ),
+          body: docs.isEmpty
+              ? const _EmptyJoinRequests()
+              : ListView.separated(
+                  padding: const EdgeInsets.all(20),
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
+                    final data = doc.data();
+                    final uid = (data['uid'] as String?) ?? doc.id;
+                    final createdAt = data['createdAt'];
+                    return _JoinRequestTile(
+                      userId: uid,
+                      createdAt: createdAt,
+                      processing: _processingUid == uid,
+                      onApprove: () => _handleApprove(uid),
+                      onReject: () => _handleReject(uid),
+                    );
+                  },
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemCount: docs.length,
+                ),
+        );
+      },
     );
   }
 
@@ -129,6 +156,59 @@ class _CommunityJoinRequestsScreenState
     } finally {
       if (mounted && _processingUid == requesterUid) {
         setState(() => _processingUid = null);
+      }
+    }
+  }
+
+  Future<void> _approveAll(List<String> uids) async {
+    if (uids.isEmpty) return;
+    setState(() => _bulkProcessing = true);
+    try {
+      for (final uid in uids) {
+        await _communityService.approveJoinRequest(
+          communityId: widget.communityId,
+          requesterUid: uid,
+          approvedBy: widget.currentUserUid,
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${uids.length}件の申請を承認しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('一括承認に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _bulkProcessing = false);
+      }
+    }
+  }
+
+  Future<void> _rejectAll(List<String> uids) async {
+    if (uids.isEmpty) return;
+    setState(() => _bulkProcessing = true);
+    try {
+      for (final uid in uids) {
+        await _communityService.rejectJoinRequest(
+          communityId: widget.communityId,
+          requesterUid: uid,
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${uids.length}件の申請を却下しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('一括却下に失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _bulkProcessing = false);
       }
     }
   }
@@ -237,7 +317,8 @@ class _JoinRequestTile extends StatelessWidget {
                                 height: 16,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(Colors.white),
+                                  valueColor:
+                                      AlwaysStoppedAnimation(Colors.white),
                                 ),
                               )
                             : const Icon(Icons.check),

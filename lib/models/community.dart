@@ -7,6 +7,7 @@ class Community {
     required this.symbol,
     required this.description,
     required this.coverUrl,
+    required this.iconUrl,
     required this.discoverable,
     required this.ownerUid,
     required this.adminUids,
@@ -18,6 +19,7 @@ class Community {
     required this.policy,
     required this.visibility,
     required this.treasury,
+    required this.notificationDefault,
   });
 
   final String id;
@@ -25,6 +27,7 @@ class Community {
   final String symbol;
   final String? description;
   final String? coverUrl;
+  final String? iconUrl;
   final bool discoverable;
   final String ownerUid;
   final List<String> adminUids;
@@ -36,6 +39,7 @@ class Community {
   final CommunityPolicy policy;
   final CommunityVisibility visibility;
   final CommunityTreasury treasury;
+  final String notificationDefault;
 
   factory Community.fromSnapshot(DocumentSnapshot<Map<String, dynamic>> snap) {
     final data = snap.data() ?? <String, dynamic>{};
@@ -52,6 +56,7 @@ class Community {
       symbol: (data['symbol'] as String?)?.trim() ?? '',
       description: (data['description'] as String?)?.trim(),
       coverUrl: (data['coverUrl'] as String?)?.trim(),
+      iconUrl: (data['iconUrl'] as String?)?.trim(),
       discoverable: data['discoverable'] == true,
       ownerUid: (data['ownerUid'] as String?) ?? '',
       adminUids: List<String>.from((data['admins'] as List?) ?? const []),
@@ -65,6 +70,8 @@ class Community {
           (data['visibility'] as Map<String, dynamic>?) ?? const {}),
       treasury: CommunityTreasury.fromMap(
           (data['treasury'] as Map<String, dynamic>?) ?? const {}),
+      notificationDefault:
+          _normalizeNotificationDefault(data['notificationDefault'] as String?),
     );
   }
 
@@ -74,6 +81,7 @@ class Community {
       'symbol': symbol,
       'description': description,
       'coverUrl': coverUrl,
+      'iconUrl': iconUrl,
       'discoverable': discoverable,
       'ownerUid': ownerUid,
       'admins': adminUids,
@@ -85,6 +93,7 @@ class Community {
       'policy': policy.toMap(),
       'visibility': visibility.toMap(),
       'treasury': treasury.toMap(),
+      'notificationDefault': notificationDefault,
     };
   }
 
@@ -93,6 +102,7 @@ class Community {
     String? symbol,
     String? description,
     String? coverUrl,
+    String? iconUrl,
     bool? discoverable,
     String? ownerUid,
     List<String>? adminUids,
@@ -104,6 +114,7 @@ class Community {
     CommunityPolicy? policy,
     CommunityVisibility? visibility,
     CommunityTreasury? treasury,
+    String? notificationDefault,
   }) {
     return Community(
       id: id,
@@ -111,6 +122,7 @@ class Community {
       symbol: symbol ?? this.symbol,
       description: description ?? this.description,
       coverUrl: coverUrl ?? this.coverUrl,
+      iconUrl: iconUrl ?? this.iconUrl,
       discoverable: discoverable ?? this.discoverable,
       ownerUid: ownerUid ?? this.ownerUid,
       adminUids: adminUids ?? this.adminUids,
@@ -122,7 +134,16 @@ class Community {
       policy: policy ?? this.policy,
       visibility: visibility ?? this.visibility,
       treasury: treasury ?? this.treasury,
+      notificationDefault: notificationDefault ?? this.notificationDefault,
     );
+  }
+
+  static String _normalizeNotificationDefault(String? raw) {
+    final trimmed = (raw ?? '').trim();
+    if (trimmed.isEmpty) {
+      return '@mentions';
+    }
+    return trimmed;
   }
 
   static DateTime? _toDate(dynamic value) {
@@ -174,27 +195,37 @@ class CommunityTreasury {
   const CommunityTreasury({
     required this.balance,
     required this.initialGrant,
+    required this.dualApprovalEnabled,
   });
 
   final num balance;
   final num initialGrant;
+  final bool dualApprovalEnabled;
 
   factory CommunityTreasury.fromMap(Map<String, dynamic> map) {
     return CommunityTreasury(
       balance: (map['balance'] as num?) ?? 0,
       initialGrant: (map['initialGrant'] as num?) ?? 0,
+      dualApprovalEnabled: map['dualApprovalEnabled'] == true,
     );
   }
 
   Map<String, Object?> toMap() => {
         'balance': balance,
         'initialGrant': initialGrant,
+        'dualApprovalEnabled': dualApprovalEnabled,
       };
 
-  CommunityTreasury copyWith({num? balance, num? initialGrant}) {
+  CommunityTreasury copyWith({
+    num? balance,
+    num? initialGrant,
+    bool? dualApprovalEnabled,
+  }) {
     return CommunityTreasury(
       balance: balance ?? this.balance,
       initialGrant: initialGrant ?? this.initialGrant,
+      dualApprovalEnabled:
+          dualApprovalEnabled ?? this.dualApprovalEnabled,
     );
   }
 }

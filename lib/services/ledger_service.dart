@@ -84,7 +84,11 @@ class LedgerService {
       if (isCentralBankPayer || isCentralBankReceiver) {
         final communitySnap = await tx.get(communityDoc);
         final treasury = communitySnap.data()?.treasury ??
-            const CommunityTreasury(balance: 0, initialGrant: 0);
+            const CommunityTreasury(
+              balance: 0,
+              initialGrant: 0,
+              dualApprovalEnabled: false,
+            );
         if (isCentralBankPayer && treasury.balance < amount) {
           throw StateError('中央銀行の残高が不足しています');
         }
