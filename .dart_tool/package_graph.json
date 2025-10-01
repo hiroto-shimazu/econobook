@@ -7,6 +7,7 @@
       "name": "econobook",
       "version": "0.0.0",
       "dependencies": [
+        "characters",
         "cloud_firestore",
         "firebase_auth",
         "firebase_core",
@@ -23,6 +24,11 @@
       "dependencies": [
         "lints"
       ]
+    },
+    {
+      "name": "characters",
+      "version": "1.4.0",
+      "dependencies": []
     },
     {
       "name": "cloud_firestore",
@@ -223,11 +229,6 @@
       "dependencies": [
         "collection"
       ]
-    },
-    {
-      "name": "characters",
-      "version": "1.4.0",
-      "dependencies": []
     },
     {
       "name": "plugin_platform_interface",

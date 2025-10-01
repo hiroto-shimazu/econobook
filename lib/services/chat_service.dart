@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../models/chat_message.dart';
+
 /// Service responsible for direct member-to-member chat handling within a
 /// community.
 class ChatService {
@@ -33,10 +35,38 @@ class ChatService {
     required String senderUid,
     required String receiverUid,
     required String message,
-  }) async {
+  }) {
     final trimmed = message.trim();
     if (trimmed.isEmpty) {
       throw ArgumentError('message cannot be empty');
+    }
+    return sendTypedMessage(
+      communityId: communityId,
+      senderUid: senderUid,
+      receiverUid: receiverUid,
+      type: ChatMessageType.text,
+      text: trimmed,
+      previewText: trimmed,
+    );
+  }
+
+  /// Sends a message with arbitrary [type] and [metadata]. Text may be empty
+  /// for system events or ledger notifications.
+  Future<void> sendTypedMessage({
+    required String communityId,
+    required String senderUid,
+    required String receiverUid,
+    required ChatMessageType type,
+    String? text,
+    Map<String, dynamic>? metadata,
+    String? previewText,
+  }) async {
+    if (type == ChatMessageType.text) {
+      final trimmed = (text ?? '').trim();
+      if (trimmed.isEmpty) {
+        throw ArgumentError('Text message cannot be empty');
+      }
+      text = trimmed;
     }
 
     final threadId = buildThreadId(senderUid, receiverUid);
@@ -44,11 +74,16 @@ class ChatService {
     final messageRef = _messages(communityId, threadId).doc();
     final participants = [senderUid, receiverUid]..sort();
 
+    final sanitizedMetadata = Map<String, dynamic>.from(
+        (metadata ?? const <String, dynamic>{}));
+
     await _firestore.runTransaction((transaction) async {
       final threadSnap = await transaction.get(threadRef);
 
       transaction.set(messageRef, {
-        'text': trimmed,
+        'type': type.name,
+        'text': text,
+        'metadata': sanitizedMetadata,
         'senderUid': senderUid,
         'receiverUid': receiverUid,
         'createdAt': FieldValue.serverTimestamp(),
@@ -56,6 +91,12 @@ class ChatService {
 
       final now = FieldValue.serverTimestamp();
       final unreadCounts = <String, int>{};
+      final lastMessagePreview = _buildPreview(
+        type: type,
+        text: text,
+        previewText: previewText,
+        metadata: sanitizedMetadata,
+      );
 
       if (threadSnap.exists) {
         final data = threadSnap.data() ?? <String, dynamic>{};
@@ -75,8 +116,10 @@ class ChatService {
         transaction.update(threadRef, {
           'participants': participants,
           'updatedAt': now,
-          'lastMessage': trimmed,
+          'lastMessage': lastMessagePreview,
           'lastSenderUid': senderUid,
+          'lastMessageType': type.name,
+          'lastMessageMetadata': sanitizedMetadata,
           'unreadCounts': unreadCounts,
         });
       } else {
@@ -88,12 +131,54 @@ class ChatService {
           'participants': participants,
           'createdAt': now,
           'updatedAt': now,
-          'lastMessage': trimmed,
+          'lastMessage': lastMessagePreview,
           'lastSenderUid': senderUid,
+          'lastMessageType': type.name,
+          'lastMessageMetadata': sanitizedMetadata,
           'unreadCounts': unreadCounts,
         });
       }
     });
+  }
+
+  String _buildPreview({
+    required ChatMessageType type,
+    String? text,
+    String? previewText,
+    Map<String, dynamic>? metadata,
+  }) {
+    if (previewText != null && previewText.trim().isNotEmpty) {
+      return previewText.trim();
+    }
+    switch (type) {
+      case ChatMessageType.transfer:
+        final amount = metadata?['amount'];
+        final currency = metadata?['currency'];
+        if (amount != null && currency != null) {
+          return '送金 $amount $currency';
+        }
+        return '送金が行われました';
+      case ChatMessageType.request:
+        final amount = metadata?['amount'];
+        final currency = metadata?['currency'];
+        if (amount != null && currency != null) {
+          return '請求 $amount $currency';
+        }
+        return '請求が作成されました';
+      case ChatMessageType.split:
+        return '割り勘リクエスト';
+      case ChatMessageType.task:
+        final title = metadata?['title'];
+        if (title is String && title.isNotEmpty) {
+          return 'タスク: $title';
+        }
+        return 'タスクが共有されました';
+      case ChatMessageType.system:
+        return text ?? 'システム通知';
+      case ChatMessageType.text:
+      default:
+        return (text ?? '').trim();
+    }
   }
 
   /// Marks a thread as read for [userUid] by clearing the unread counter.

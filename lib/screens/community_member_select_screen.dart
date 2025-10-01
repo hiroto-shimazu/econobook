@@ -2672,15 +2672,9 @@ class _CommunityMemberSelectScreenState
                         Expanded(
                           child: FilledButton.icon(
                             icon: const Icon(Icons.send),
-                            onPressed: () {
+                            onPressed: () async {
                               Navigator.of(context).pop();
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    '${member.displayName} への連絡は近日対応予定です。',
-                                  ),
-                                ),
-                              );
+                              await _startDirectChat(member);
                             },
                             style: FilledButton.styleFrom(
                               backgroundColor: _kMainBlue,

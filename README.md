@@ -658,3 +658,20 @@ news/{cid}/{postId}
   ```
 
 - 開発向けの分岐は `kDebugMode` を利用し、本番ロジックは変更しない。
+
+## メンバートーク機能
+
+メンバー同士の1対1チャットで、そのまま送金・請求・割り勘・タスクの共有ができます。`コミュニティ > トーク` から相手を選択すると以下が利用可能です。
+
+- メッセージ送受信（リアルタイム更新）
+- 直接送金（Ledgerと同期しチャットにも記録）
+- 請求/割り勘の作成（承認状況はメッセージ内バッジで確認）
+- タスク依頼（報酬支払いは承認後自動送金）
+- 今月の送受金サマリーと保留件数をヘッダーに表示
+
+Firestore コレクション
+
+- `community_chats/{cid}/threads/{threadId}` … スレッドメタ情報
+- `community_chats/{cid}/threads/{threadId}/messages/{mid}` … 各メッセージ
+
+`threadId` は `ChatService.buildThreadId(uidA, uidB)` で生成され、既存の `ledger`・`requests`・`tasks` コレクションと連携して履歴を一元表示します。
