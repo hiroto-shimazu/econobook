@@ -6,6 +6,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../dev/dev_seed.dart';
+import '../dev/dev_users.dart';
 import '../models/app_user.dart';
 import '../models/community.dart';
 import '../models/membership.dart';
@@ -183,6 +185,103 @@ class _CommunityMemberSelectScreenState
       0,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
+    );
+  }
+
+  void _showDevMenu() {
+    if (!isDev) return;
+    String _selectedUid = getDefaultDevUid();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        final media = MediaQuery.of(context);
+        final padding = EdgeInsets.only(bottom: media.viewInsets.bottom);
+
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, 16) + padding,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Devメニュー（Debug専用）',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+
+                // ユーザー切替（開発用）
+                Row(
+                  children: [
+                    const Text('開発ユーザー: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(width: 8),
+                    StatefulBuilder(
+                      builder: (context, setStateSB) {
+                        return DropdownButton<String>(
+                          value: _selectedUid.isEmpty ? devUsers.first : _selectedUid,
+                          items: devUsers
+                              .map((u) => DropdownMenuItem(value: u, child: Text(u)))
+                              .toList(),
+                          onChanged: (u) {
+                            setStateSB(() => _selectedUid = u ?? devUsers.first);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('現在の開発UIDを $_selectedUid に設定（画面遷移時に利用）')),
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // シード投入
+                FilledButton.icon(
+                  icon: const Icon(Icons.playlist_add),
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await seedDevData(widget.communityId);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Devシードを投入しました')),
+                    );
+                  },
+                  label: const Text('Devシードを投入（コミュ・ユーザー・メンバー）'),
+                ),
+                const SizedBox(height: 8),
+
+                // 承認待ち追加
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.pending_actions),
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await addPendingMembers(widget.communityId, count: 3);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('承認待ちメンバーを3件追加しました')),
+                    );
+                  },
+                  label: const Text('承認待ちを3件追加'),
+                ),
+                const SizedBox(height: 8),
+
+                // 説明
+                const Text(
+                  '開発メモ:\n- ログイン省略は、画面を開くときに getDefaultDevUid() を使って UID を渡す運用を想定。\n'
+                  '- 実アプリの認証フローには影響しません（kDebugMode限定）。\n'
+                  '- Firestore Emulator を使う場合は、CLI で起動しておくとデータが保持されます。',
+                  style: TextStyle(color: Colors.black54, fontSize: 12, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1183,6 +1282,16 @@ class _CommunityMemberSelectScreenState
                   icon: Icons.person_add_alt_1,
                   tooltip: 'メンバーを招待',
                   onPressed: () => _showNotImplemented('メンバー招待'),
+                ),
+              ),
+            if (isDev)
+              Positioned(
+                right: 20,
+                bottom: 92 + MediaQuery.of(context).padding.bottom,
+                child: _DashboardFab(
+                  icon: Icons.science_outlined,
+                  tooltip: 'Devメニュー',
+                  onPressed: _showDevMenu,
                 ),
               ),
           ],

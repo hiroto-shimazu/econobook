@@ -639,3 +639,22 @@ news/{cid}/{postId}
 * サポート：チャット通報→モデレーションキュー→SLA目標
 
 通貨は信用ポイントに変換できたりする。
+
+---
+
+## 開発メモ（Devモード）
+- Firestore Emulator を利用する場合は、以下で起動・永続化：
+
+  ```bash
+  firebase emulators:start --import ./.emulator-data --export-on-exit
+  ```
+
+- Flutter Web デバッグ時に Chrome 拡張を無効化してノイズを減らす：
+
+  ```bash
+  flutter run -d chrome \
+    --web-browser-flag="--user-data-dir=/tmp/flutter-chrome" \
+    --web-browser-flag="--disable-extensions"
+  ```
+
+- 開発向けの分岐は `kDebugMode` を利用し、本番ロジックは変更しない。
