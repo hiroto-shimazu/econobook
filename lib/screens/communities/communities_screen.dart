@@ -1,9 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show setEquals;
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/gestures.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../constants/community.dart';
@@ -1204,7 +1204,3 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     );
   }
 }
-
-}
-
-class CommunitiesScreen extends StatefulWidget {
