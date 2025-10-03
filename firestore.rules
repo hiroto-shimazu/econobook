@@ -68,30 +68,26 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
-    // tasks
-    match /tasks/{cid}/items/{taskId} {
+    // tasks（開発用: サインインなら読み書き可）
+    match /tasks/{cid}/tasks/{taskId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
     }
 
-    // ledger（コミュニティメンバーのみ）
+    // ledger（開発用: サインインなら読み書き可）
     match /ledger/{cid}/entries/{entryId} {
-      allow read: if isCommunityMember(cid);
-      allow write: if isCommunityMember(cid);
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
-    // requests（コミュニティメンバーのみ）
     match /requests/{cid}/items/{reqId} {
-      allow read: if isCommunityMember(cid);
-      allow write: if isCommunityMember(cid);
+      allow read, write: if isSignedIn();
     }
 
-    // news posts
     match /news/{cid}/posts/{postId} {
       allow read, write: if isSignedIn();
     }
 
-    // join requests
     match /join_requests/{cid}/items/{uid} {
       allow read, write: if isSignedIn();
     }

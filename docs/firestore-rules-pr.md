@@ -2,7 +2,7 @@
 
 概要
 - 目的: チャットのメッセージ/スレッド閲覧に関して、該当コミュニティのメンバーのみ読み取りを許可するセキュリティ強化。
-- 変更箇所: `firestore.rules` を更新し、`community_chats/{cid}/threads/{threadId}` と `community_chats/{cid}/threads/{threadId}/messages/{messageId}` の `read`/`create` を `memberships/{cid}_{uid}` ドキュメントが存在する場合（=コミュニティメンバー）に許可します。また、既存スレッドの参加者は membership が未発行でもレスキュー目的で読み取り・投稿できます。`ledger`, `requests`, `tasks` もコミュニティメンバーに限定します。
+- 変更箇所: `firestore.rules` を更新し、`community_chats/{cid}/threads/{threadId}` および `community_chats/{cid}/threads/{threadId}/messages/{messageId}` の `read`/`create` をコミュニティメンバー（`memberships/{cid}_{uid}` が存在）に限定しました。既存スレッドの参加者は membership が未発行でもフォールバックで読み取り・投稿できます。その他のコレクション（`ledger`, `requests`, `tasks` など）は従来通りサインイン済みであればアクセス可能です。
 
 デプロイ手順
 1. Firebase CLI にログイン
