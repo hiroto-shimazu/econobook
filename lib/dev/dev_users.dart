@@ -2,7 +2,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
-bool get isDev => kDebugMode;
+/// Dev mode is enabled only when running in debug AND the
+/// --dart-define=USE_DEV_MENU=true flag is provided. This prevents the dev
+/// menu from appearing during normal operation on developer machines or CI.
+bool get isDev {
+  const useDevMenu = bool.fromEnvironment('USE_DEV_MENU', defaultValue: false);
+  return kDebugMode && useDevMenu;
+}
 
 class DevUserEntry {
   const DevUserEntry({

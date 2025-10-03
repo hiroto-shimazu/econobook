@@ -210,6 +210,30 @@ class _WalletScreenState extends State<WalletScreen> {
     }
   }
 
+  Future<void> _startBorrowFlow() async {
+    final result = await TransactionFlowScreen.open(
+      context,
+      user: widget.user,
+      initialKind: TransactionKind.request,
+    );
+    if (!mounted || result != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('借入リクエストを送信しました')),
+    );
+  }
+
+  Future<void> _startRepayFlow() async {
+    final result = await TransactionFlowScreen.open(
+      context,
+      user: widget.user,
+      initialKind: TransactionKind.transfer,
+    );
+    if (!mounted || result != true) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('返済を登録しました')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final membershipsQuery = FirebaseFirestore.instance
@@ -288,6 +312,56 @@ class _WalletScreenState extends State<WalletScreen> {
                         child: _StatCard(
                           title: 'ポイント',
                           value: _formatAmount(total), // 将来は別指標に差し替え可
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _startBorrowFlow,
+                          icon: const Icon(Icons.south_west_rounded),
+                          label: const Text('借りる'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: kBrandBlue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 12,
+                            ),
+                            minimumSize: const Size.fromHeight(52),
+                            textStyle: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _startRepayFlow,
+                          icon: const Icon(Icons.north_east_rounded),
+                          label: const Text('返す'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: kBrandBlue,
+                            side:
+                                const BorderSide(color: kBrandBlue, width: 1.5),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 14,
+                              horizontal: 12,
+                            ),
+                            minimumSize: const Size.fromHeight(52),
+                            textStyle: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                         ),
                       ),
                     ],

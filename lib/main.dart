@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,8 +14,15 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  if (kDebugMode) {
-    final host = 'localhost'; // Android emulatorなら '10.0.2.2'
+  // Emulator usage should be explicit. In earlier code we enabled emulators
+  // whenever kDebugMode was true which caused accidental emulator binding on
+  // real devices (where 'localhost' is not reachable). Require an explicit
+  // --dart-define=USE_FIREBASE_EMULATOR=true to turn on emulator mode.
+  const useEmulator = bool.fromEnvironment('USE_FIREBASE_EMULATOR',
+      defaultValue: false);
+  if (kDebugMode && useEmulator) {
+    final host = const String.fromEnvironment('FIREBASE_EMULATOR_HOST',
+        defaultValue: 'localhost'); // Android emulatorなら '10.0.2.2'
     // Firestore emulator
     FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
     FirebaseFirestore.instance.settings = const Settings(
@@ -54,47 +62,102 @@ class AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<AuthGate> {
   bool _attemptedAutoSignIn = false;
+  // If auth stream does not emit within this duration, we consider it a
+  // transient failure and fall back to showing the SignInScreen.
+  static const _authStreamTimeout = Duration(seconds: 5);
+  Timer? _authTimeoutTimer;
+  bool _authTimedOut = false;
 
   Future<void> _tryDevAutoSignIn() async {
     if (!kDebugMode || _attemptedAutoSignIn) return;
-    _attemptedAutoSignIn = true;
+    // mark that we've started an attempt and trigger a rebuild so the
+    // loading indicator is shown while attempting.
+    if (mounted) setState(() {
+      _attemptedAutoSignIn = true;
+    });
     const devEmail = String.fromEnvironment('DEV_EMAIL');
     const devPassword = String.fromEnvironment('DEV_PASSWORD');
+    const useEmulator = bool.fromEnvironment('USE_FIREBASE_EMULATOR',
+        defaultValue: false);
     try {
       if (devEmail.isNotEmpty && devPassword.isNotEmpty) {
+        // If DEV credentials are provided, use them.
         await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: devEmail,
           password: devPassword,
         );
       } else {
-        // フォールバック：匿名サインイン（Auth Emulator 前提）
+        // Only attempt anonymous sign-in when explicitly using emulator.
+        if (!useEmulator) {
+          debugPrint(
+              'Skipping anonymous auto sign-in: not using emulator and no dev credentials');
+          return;
+        }
         await FirebaseAuth.instance.signInAnonymously();
       }
     } catch (e) {
+      // Handle FirebaseAuth-specific errors more gracefully
+      if (e is FirebaseAuthException) {
+        if (e.code == 'admin-restricted-operation') {
+          debugPrint(
+              'Dev auto sign-in blocked by admin restriction: ${e.message}');
+          return;
+        }
+        debugPrint('Dev auto sign-in failed: ${e.code} ${e.message}');
+        return;
+      }
       debugPrint('Dev auto sign-in failed: $e');
     }
+    // Ensure we rebuild after the attempt so that, if the sign-in failed,
+    // the UI can fall back to the normal SignInScreen instead of staying
+    // on the indefinite loading indicator.
+    if (mounted) setState(() {});
   }
 
   @override
   Widget build(BuildContext context) {
+    // Use StreamBuilder so auth state changes are reflected live. Start a
+    // timer to fall back to SignInScreen if the stream doesn't emit quickly.
+    _authTimeoutTimer?.cancel();
+    _authTimeoutTimer = Timer(_authStreamTimeout, () {
+      if (mounted) setState(() => _authTimedOut = true);
+    });
+
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+        // If the stream has emitted, cancel the timeout timer.
+        if (snap.connectionState != ConnectionState.waiting) {
+          _authTimeoutTimer?.cancel();
+          if (mounted && _authTimedOut) _authTimedOut = false;
+        }
+
+        final user = snap.data;
+
+        // If waiting and we haven't timed out yet, show a loader. Also trigger
+        // dev auto-signin after the first frame to avoid setState-in-build.
+        if ((snap.connectionState == ConnectionState.waiting) && !_authTimedOut) {
+          if (kDebugMode && !_attemptedAutoSignIn) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _tryDevAutoSignIn();
+            });
+          }
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        final user = snap.data;
+
         if (user == null) {
-          // Debug時は一度だけ自動サインインを試す
-          _tryDevAutoSignIn();
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return const SignInScreen();
         }
         return HomeScreen(user: user);
       },
     );
+  }
+
+  @override
+  void dispose() {
+    _authTimeoutTimer?.cancel();
+    super.dispose();
   }
 }

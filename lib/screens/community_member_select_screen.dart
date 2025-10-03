@@ -16,6 +16,7 @@ import '../models/split_rounding_mode.dart';
 import '../services/chat_service.dart';
 import '../services/community_service.dart';
 import '../services/firestore_refs.dart';
+import '../services/ledger_service.dart';
 import '../services/request_service.dart';
 import '../services/task_service.dart';
 import '../constants/community.dart';
@@ -64,6 +65,8 @@ enum _CommunityDashboardTab {
 }
 
 enum _TalkFilterOption { all, unread, mention, active }
+
+enum _BankActionType { lend, request, donate }
 
 extension _CommunityDashboardTabLabel on _CommunityDashboardTab {
   String get label {
@@ -181,6 +184,7 @@ class _CommunityMemberSelectScreenState
   final RequestService _requestService = RequestService();
   final TaskService _taskService = TaskService();
   final CommunityService _communityService = CommunityService();
+  final LedgerService _ledgerService = LedgerService();
   String? _processingRequestId;
   bool _bulkActionInProgress = false;
   bool _updatingApprovalSetting = false;
@@ -192,6 +196,7 @@ class _CommunityMemberSelectScreenState
   bool _dualApprovalUpdating = false;
   String? _bankPermissionUpdatingUid;
   bool _addingBankManager = false;
+  _BankActionType? _bankActionInProgress;
 
   // ---- Derived counts ----
   int get _pendingCount => _members
@@ -408,13 +413,7 @@ class _CommunityMemberSelectScreenState
           onNavigateMembers:
               () => _handleDashboardTabSelected(_CommunityDashboardTab.members),
         ),
-        const SizedBox(height: 20),
-        _OverviewMetricsGrid(metrics: metrics),
-        const SizedBox(height: 20),
-        _OverviewNavigationCard(
-          items: navItems,
-          onNavigate: _handleDashboardTabSelected,
-        ),
+                      const SizedBox(height: 4),
         const SizedBox(height: 20),
         _OverviewInsightCard(
           icon: Icons.pending_actions,
@@ -888,7 +887,10 @@ class _CommunityMemberSelectScreenState
           title: 'コミュニティを削除する',
           description: 'すべてのデータが完全に削除されます。',
           onTap: _confirmDeleteCommunity,
-          enabled: !_deletingCommunity,
+          // Only the community owner can delete the community. Server-side
+          // enforcement exists in CommunityService.deleteCommunity, but we
+          // also disable the UI for non-owners here for clarity.
+          enabled: (_community?.ownerUid == widget.currentUserUid) && !_deletingCommunity,
           loading: _deletingCommunity,
         ),
       ],
@@ -901,6 +903,9 @@ class _CommunityMemberSelectScreenState
     final reserve = treasury?.initialGrant ?? 0;
     final allowMinting = _community?.currency.allowMinting ?? true;
     final isOwner = _community?.ownerUid == widget.currentUserUid;
+    final currentMember = _findMemberByUid(widget.currentUserUid);
+    final hasBankPermission =
+        isOwner || (currentMember?.membership.canManageBank ?? false);
     final permissionMembers = [
       for (final member in _members)
         if (member.membership.canManageBank)
@@ -923,6 +928,15 @@ class _CommunityMemberSelectScreenState
           allowMinting: allowMinting,
         ),
         const SizedBox(height: 16),
+        if (hasBankPermission) ...[
+          _BankQuickActions(
+            onLend: () => _handleBankLend(currencyCode),
+            onRequest: () => _handleBankRequest(currencyCode),
+            onDonate: () => _handleBankGift(currencyCode),
+            busyAction: _bankActionInProgress,
+          ),
+          const SizedBox(height: 16),
+        ],
         _BankPrimaryActions(
           onMint: () => _handleMint(currencyCode),
           onBurn: () => _handleBurn(currencyCode),
@@ -1054,6 +1068,17 @@ class _CommunityMemberSelectScreenState
       }
     }
     return null;
+  }
+
+  List<_SelectableMember> get _bankRecipientCandidates {
+    final candidates = _members.where((member) {
+      if (member.isPending) return false;
+      final uid = member.membership.userId;
+      if (uid.isEmpty || uid == kCentralBankUid) return false;
+      return true;
+    }).toList()
+      ..sort((a, b) => a.displayName.compareTo(b.displayName));
+    return candidates;
   }
 
   String? get _currentUserDisplayName {
@@ -2164,6 +2189,348 @@ class _CommunityMemberSelectScreenState
     }
   }
 
+  Future<void> _handleBankLend(String currencyCode) async {
+    if (_bankActionInProgress != null) return;
+    final candidates = _bankRecipientCandidates;
+    if (candidates.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('貸出可能なメンバーが見つかりません。')),
+      );
+      return;
+    }
+
+    final precision = _community?.currency.precision ?? 2;
+    final result = await _showBankActionSheet(
+      title: '中央銀行から貸す',
+      description: '選択したメンバーに中央銀行から貸出を記録します。',
+      submitLabel: '貸出を記録',
+      currencyCode: currencyCode,
+      members: candidates,
+      enableRepaymentToggle: true,
+    );
+    if (result == null) return;
+
+    setState(() => _bankActionInProgress = _BankActionType.lend);
+    try {
+      final memo = result.memo;
+      final transferMemo =
+          (memo == null || memo.isEmpty) ? '中央銀行貸出' : memo;
+      await _ledgerService.recordTransfer(
+        communityId: widget.communityId,
+        fromUid: kCentralBankUid,
+        toUid: result.targetUid,
+        amount: result.amount,
+        memo: transferMemo,
+        createdBy: widget.currentUserUid,
+      );
+
+      if (result.createRepaymentRequest) {
+        final requestMemo =
+            (memo == null || memo.isEmpty) ? '貸出返済のお願い' : memo;
+        await _requestService.createRequest(
+          communityId: widget.communityId,
+          fromUid: kCentralBankUid,
+          toUid: result.targetUid,
+          amount: result.amount,
+          memo: requestMemo,
+          createdBy: widget.currentUserUid,
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '貸出を記録しました (${result.amount.toStringAsFixed(precision)})',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('貸出の記録に失敗しました: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _bankActionInProgress = null);
+      }
+    }
+  }
+
+  Future<void> _handleBankRequest(String currencyCode) async {
+    if (_bankActionInProgress != null) return;
+    final candidates = _bankRecipientCandidates;
+    if (candidates.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請求できるメンバーが見つかりません。')),
+      );
+      return;
+    }
+
+    final result = await _showBankActionSheet(
+      title: '中央銀行から請求',
+      description: '選択したメンバーに中央銀行からの請求を送信します。',
+      submitLabel: '請求を送信',
+      currencyCode: currencyCode,
+      members: candidates,
+    );
+    if (result == null) return;
+
+    setState(() => _bankActionInProgress = _BankActionType.request);
+    try {
+      final memo = result.memo;
+      final requestMemo =
+          (memo == null || memo.isEmpty) ? '中央銀行からの請求' : memo;
+      await _requestService.createRequest(
+        communityId: widget.communityId,
+        fromUid: kCentralBankUid,
+        toUid: result.targetUid,
+        amount: result.amount,
+        memo: requestMemo,
+        createdBy: widget.currentUserUid,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請求を作成しました')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('請求の作成に失敗しました: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _bankActionInProgress = null);
+      }
+    }
+  }
+
+  Future<void> _handleBankGift(String currencyCode) async {
+    if (_bankActionInProgress != null) return;
+    final candidates = _bankRecipientCandidates;
+    if (candidates.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('贈与できるメンバーが見つかりません。')),
+      );
+      return;
+    }
+
+    final precision = _community?.currency.precision ?? 2;
+    final result = await _showBankActionSheet(
+      title: '中央銀行から贈与',
+      description: '選択したメンバーに中央銀行からの贈与を記録します。',
+      submitLabel: '贈与を記録',
+      currencyCode: currencyCode,
+      members: candidates,
+    );
+    if (result == null) return;
+
+    setState(() => _bankActionInProgress = _BankActionType.donate);
+    try {
+      final memo = result.memo;
+      final transferMemo =
+          (memo == null || memo.isEmpty) ? '中央銀行贈与' : memo;
+      await _ledgerService.recordTransfer(
+        communityId: widget.communityId,
+        fromUid: kCentralBankUid,
+        toUid: result.targetUid,
+        amount: result.amount,
+        memo: transferMemo,
+        createdBy: widget.currentUserUid,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '贈与を記録しました (${result.amount.toStringAsFixed(precision)})',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('贈与の記録に失敗しました: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _bankActionInProgress = null);
+      }
+    }
+  }
+
+  Future<_BankActionFormResult?> _showBankActionSheet({
+    required String title,
+    required String description,
+    required String submitLabel,
+    required String currencyCode,
+    required List<_SelectableMember> members,
+    bool enableRepaymentToggle = false,
+  }) async {
+    if (members.isEmpty) return null;
+    final amountController = TextEditingController();
+    final memoController = TextEditingController();
+    String? selectedUid = members.first.membership.userId;
+    String? error;
+    bool createRepayment = true;
+    try {
+      final result = await showModalBottomSheet<_BankActionFormResult>(
+        context: context,
+        isScrollControlled: true,
+        builder: (sheetContext) {
+          final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, bottomInset + 24),
+            child: StatefulBuilder(
+              builder: (context, setStateModal) {
+                return SafeArea(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          description,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          value: selectedUid,
+                          items: [
+                            for (final member in members)
+                              DropdownMenuItem(
+                                value: member.membership.userId,
+                                child: Text(member.displayName),
+                              ),
+                          ],
+                          decoration: const InputDecoration(
+                            labelText: '対象メンバー',
+                          ),
+                          onChanged: (value) =>
+                              setStateModal(() => selectedUid = value),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: amountController,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          decoration: InputDecoration(
+                            labelText: '金額 ($currencyCode)',
+                            hintText: '例) 5000',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: memoController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'メモ (任意)',
+                            hintText: '用途や補足を入力',
+                          ),
+                        ),
+                        if (enableRepaymentToggle) ...[
+                          const SizedBox(height: 12),
+                          SwitchListTile.adaptive(
+                            value: createRepayment,
+                            onChanged: (value) => setStateModal(() {
+                              createRepayment = value;
+                            }),
+                            title: const Text('同額で返済リクエストを自動作成'),
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ],
+                        if (error != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            error!,
+                            style: const TextStyle(color: Colors.redAccent),
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text('キャンセル'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () {
+                                  final target = selectedUid;
+                                  final rawAmount = amountController.text
+                                      .trim()
+                                      .replaceAll(',', '');
+                                  final amount =
+                                      double.tryParse(rawAmount);
+                                  if (target == null || target.isEmpty) {
+                                    setStateModal(
+                                        () => error = '対象メンバーを選択してください');
+                                    return;
+                                  }
+                                  if (amount == null || amount <= 0) {
+                                    setStateModal(
+                                        () => error = '金額を正しく入力してください');
+                                    return;
+                                  }
+
+                                  final memoText =
+                                      memoController.text.trim();
+                                  Navigator.of(context).pop(
+                                    _BankActionFormResult(
+                                      targetUid: target,
+                                      amount: amount,
+                                      memo: memoText.isEmpty
+                                          ? null
+                                          : memoText,
+                                      createRepaymentRequest:
+                                          enableRepaymentToggle
+                                              ? createRepayment
+                                              : false,
+                                    ),
+                                  );
+                                },
+                                child: Text(submitLabel),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      );
+      return result;
+    } finally {
+      amountController.dispose();
+      memoController.dispose();
+    }
+  }
+
   Future<void> _handleMint(String currencyCode) async {
     final amount = await _promptAmountDialog('発行 (Mint)', currencyCode);
     if (amount == null) return;
@@ -2257,10 +2624,15 @@ class _CommunityMemberSelectScreenState
               ),
               for (final member in candidates)
                 ListTile(
-                  leading: CircleAvatar(
-                    child: Text(member.displayName.characters.first),
+                  leading: _LiveMemberAvatar(
+                    uid: member.membership.userId,
+                    fallback: member.displayName,
+                    size: 28,
                   ),
-                  title: Text(member.displayName),
+                  title: _LiveMemberName(
+                    uid: member.membership.userId,
+                    fallback: member.displayName,
+                  ),
                   subtitle: Text(member.membership.role),
                   onTap: () => Navigator.of(context).pop(member.membership.userId),
                 ),
@@ -2387,9 +2759,9 @@ class _CommunityMemberSelectScreenState
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) async {
     final token = ++_membersUpdateToken;
-    final memberships = docs
-        .map((doc) => Membership.fromMap(id: doc.id, data: doc.data()))
-        .toList();
+  final memberships = docs
+    .map((doc) => Membership.fromMap(id: doc.id, data: doc.data()))
+    .toList();
 
     setState(() {
       _membersLoading = true;
@@ -2403,12 +2775,28 @@ class _CommunityMemberSelectScreenState
       if (!mounted || token != _membersUpdateToken) {
         return;
       }
-      final members = memberships
-          .map((membership) => _SelectableMember(
-                membership: membership,
-                profile: profiles[membership.userId],
-              ))
-          .toList();
+      // Build selectable members; if a profile is missing, try to recover a displayName
+      // from the original membership document (legacy data may store name there).
+      final members = <_SelectableMember>[];
+      for (var i = 0; i < memberships.length; i++) {
+        final membership = memberships[i];
+        AppUser? profile = profiles[membership.userId];
+        if (profile == null) {
+          try {
+            final raw = docs[i].data();
+            final alt = (raw['displayName'] as String?)?.trim() ??
+                (raw['name'] as String?)?.trim() ??
+                (raw['label'] as String?)?.trim() ??
+                (raw['display_name'] as String?)?.trim();
+            if (alt != null && alt.isNotEmpty) {
+              profile = AppUser.fromMap(membership.userId, {'displayName': alt});
+            }
+          } catch (_) {
+            // ignore and leave profile null
+          }
+        }
+        members.add(_SelectableMember(membership: membership, profile: profile));
+      }
       setState(() {
         _members = members;
         _membersLoading = false;
@@ -2442,7 +2830,20 @@ class _CommunityMemberSelectScreenState
             .get();
         for (final doc in snap.docs) {
           try {
-            result[doc.id] = AppUser.fromSnapshot(doc);
+                // Parse AppUser normally
+                var user = AppUser.fromSnapshot(doc);
+                // Some records historically used 'name' or other keys instead of 'displayName'.
+                // If displayName is empty, try common alternative fields from the raw document.
+                if ((user.displayName).isEmpty) {
+                  final raw = doc.data();
+                  final alt = (raw['displayName'] as String?)?.trim() ??
+                      (raw['name'] as String?)?.trim() ??
+                      (raw['display_name'] as String?)?.trim();
+                  if (alt != null && alt.isNotEmpty) {
+                    user = user.copyWith(displayName: alt);
+                  }
+                }
+                result[doc.id] = user;
           } catch (e) {
             debugPrint('Failed to parse user profile ${doc.id}: $e');
           }
@@ -2459,8 +2860,8 @@ class _CommunityMemberSelectScreenState
     final filtered = _members.where((_SelectableMember member) {
       if (!_applyFilter(member)) return false;
       if (query.isEmpty) return true;
-      final display = (member.profile?.displayName ?? member.membership.userId);
-      final text = '$display ${member.membership.userId}'.toLowerCase();
+  final display = member.displayName; // _SelectableMember.displayName already prefers profile.displayName
+  final text = '$display ${member.membership.userId}'.toLowerCase();
       return text.contains(query);
     }).toList();
     filtered.sort(_sortComparator);
@@ -2576,25 +2977,34 @@ class _CommunityMemberSelectScreenState
                   children: [
                     Row(
                       children: [
-                        _MemberAvatar(member: member, size: 52),
+                        _MemberAvatar(member: member, size: 52, isSelf: member.membership.userId == widget.currentUserUid),
                         const SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                member.displayName,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: _kTextMain,
-                                ),
-                              ),
+                              // Show live-updating name: prefer local FirebaseAuth displayName for self,
+                              // and listen to users/{uid} for others so profile edits appear immediately.
+                              member.membership.userId == widget.currentUserUid
+                                  ? Text(
+                                      FirebaseAuth.instance.currentUser?.displayName ?? member.displayName,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: _kTextMain,
+                                      ),
+                                    )
+                                  : _LiveMemberName(
+                                      uid: member.membership.userId,
+                                      fallback: member.displayName,
+                                      style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: _kTextMain,
+                                      ),
+                                    ),
                               const SizedBox(height: 4),
-                              Text(
-                                'ID: ${member.membership.userId}',
-                                style: const TextStyle(color: _kTextSub),
-                              ),
+                              // ID is intentionally hidden from UI; keep for logs only.
                             ],
                           ),
                         ),
@@ -2668,21 +3078,23 @@ class _CommunityMemberSelectScreenState
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton.icon(
-                            icon: const Icon(Icons.send),
-                            onPressed: () async {
-                              Navigator.of(context).pop();
-                              await _startDirectChat(member);
-                            },
-                            style: FilledButton.styleFrom(
-                              backgroundColor: _kMainBlue,
-                              foregroundColor: Colors.white,
+                        if (member.membership.userId != widget.currentUserUid) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              icon: const Icon(Icons.send),
+                              onPressed: () async {
+                                Navigator.of(context).pop();
+                                await _startDirectChat(member);
+                              },
+                              style: FilledButton.styleFrom(
+                                backgroundColor: _kMainBlue,
+                                foregroundColor: Colors.white,
+                              ),
+                              label: const Text('直接連絡'),
                             ),
-                            label: const Text('直接連絡'),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ],
@@ -2831,6 +3243,7 @@ class _CommunityMemberSelectScreenState
                       member: member,
                       selected: selected,
                       currencyCode: currencyCode,
+                      isSelf: member.membership.userId == widget.currentUserUid,
                       onSelectToggle: () =>
                           _toggleSelection(member.membership.userId),
                       onDetail: () => _showMemberDetail(member),
@@ -3054,7 +3467,8 @@ class _SelectableMember {
   String get displayName {
     final name = profile?.displayName.trim();
     if (name != null && name.isNotEmpty) return name;
-    return membership.userId;
+    // Prefer not to show raw UID in the UI. Use a friendly fallback label.
+    return '匿名ユーザー';
   }
 
   String get initials {
@@ -5645,6 +6059,167 @@ class _BankSummaryCard extends StatelessWidget {
   }
 }
 
+class _BankActionFormResult {
+  const _BankActionFormResult({
+    required this.targetUid,
+    required this.amount,
+    this.memo,
+    this.createRepaymentRequest = false,
+  });
+
+  final String targetUid;
+  final double amount;
+  final String? memo;
+  final bool createRepaymentRequest;
+}
+
+class _BankQuickActions extends StatelessWidget {
+  const _BankQuickActions({
+    required this.onLend,
+    required this.onRequest,
+    required this.onDonate,
+    required this.busyAction,
+  });
+
+  final VoidCallback onLend;
+  final VoidCallback onRequest;
+  final VoidCallback onDonate;
+  final _BankActionType? busyAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasBusy = busyAction != null;
+    return Row(
+      children: [
+        Expanded(
+          child: _BankQuickActionButton(
+            icon: Icons.attach_money,
+            label: '貸す',
+            gradient: const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [Color(0xFF2563EB), Color(0xFF6366F1)],
+            ),
+            onPressed: onLend,
+            enabled: !hasBusy || busyAction == _BankActionType.lend,
+            busy: busyAction == _BankActionType.lend,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _BankQuickActionButton(
+            icon: Icons.receipt_long,
+            label: '請求',
+            gradient: const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [Color(0xFFF59E0B), Color(0xFFF97316)],
+            ),
+            onPressed: onRequest,
+            enabled: !hasBusy || busyAction == _BankActionType.request,
+            busy: busyAction == _BankActionType.request,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _BankQuickActionButton(
+            icon: Icons.card_giftcard,
+            label: '贈与',
+            gradient: const LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [Color(0xFF16A34A), Color(0xFF22C55E)],
+            ),
+            onPressed: onDonate,
+            enabled: !hasBusy || busyAction == _BankActionType.donate,
+            busy: busyAction == _BankActionType.donate,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BankQuickActionButton extends StatelessWidget {
+  const _BankQuickActionButton({
+    required this.icon,
+    required this.label,
+    required this.gradient,
+    required this.onPressed,
+    this.enabled = true,
+    this.busy = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final LinearGradient gradient;
+  final VoidCallback onPressed;
+  final bool enabled;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool tappable = enabled && !busy;
+    return Opacity(
+      opacity: tappable ? 1 : 0.6,
+      child: SizedBox(
+        height: 52,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: gradient,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x22000000),
+                blurRadius: 12,
+                offset: Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: tappable ? onPressed : null,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (busy) ...[
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                    ] else ...[
+                      Icon(icon, color: Colors.white),
+                      const SizedBox(width: 8),
+                    ],
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _BankPrimaryActions extends StatelessWidget {
   const _BankPrimaryActions({
     required this.onMint,
@@ -6346,12 +6921,14 @@ class _MemberCard extends StatelessWidget {
     required this.selected,
     required this.currencyCode,
     required this.onSelectToggle,
+    this.isSelf = false,
     required this.onDetail,
   });
 
   final _SelectableMember member;
   final bool selected;
   final String currencyCode;
+  final bool isSelf;
   final VoidCallback onSelectToggle;
   final VoidCallback onDetail;
 
@@ -6361,9 +6938,9 @@ class _MemberCard extends StatelessWidget {
       onTap: onDetail,
       onLongPress: onSelectToggle,
       borderRadius: BorderRadius.circular(24),
-      child: Ink(
+        child: Ink(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isSelf ? const Color(0xFFE8F0FF) : Colors.white,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
             color: selected ? _kMainBlue : const Color(0xFFE2E8F0),
@@ -6384,7 +6961,7 @@ class _MemberCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _MemberAvatar(member: member, size: 48),
+                _MemberAvatar(member: member, size: 48, isSelf: isSelf),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(
@@ -6393,14 +6970,24 @@ class _MemberCard extends StatelessWidget {
                       Row(
                         children: [
                           Expanded(
-                            child: Text(
-                              member.displayName,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                                color: _kTextMain,
-                              ),
-                            ),
+                            child: isSelf
+                                ? Text(
+                                    FirebaseAuth.instance.currentUser?.displayName ?? member.displayName,
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w700,
+                                      color: _kTextMain,
+                                    ),
+                                  )
+                                : _LiveMemberName(
+                                    uid: member.membership.userId,
+                                    fallback: member.displayName,
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w700,
+                                      color: _kTextMain,
+                                    ),
+                                  ),
                           ),
                           IconButton(
                             onPressed: onDetail,
@@ -6410,11 +6997,6 @@ class _MemberCard extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        'ID: ${member.membership.userId}',
-                        style:
-                            const TextStyle(fontSize: 13, color: _kTextSub),
-                      ),
                       const SizedBox(height: 4),
                       Row(
                         children: [
@@ -6567,10 +7149,57 @@ String _formatDate(DateTime value) {
   return '${value.year}/${twoDigits(value.month)}/${twoDigits(value.day)}';
 }
 
+// Live-updating member display widgets -------------------------------------------------
+class _LiveMemberName extends StatelessWidget {
+  const _LiveMemberName({required this.uid, required this.fallback, this.style});
+  final String uid;
+  final String fallback;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.doc('users/$uid').snapshots(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final name = (data?['displayName'] as String?)?.trim() ?? (data?['name'] as String?)?.trim();
+        return Text(name != null && name.isNotEmpty ? name : fallback, style: style);
+      },
+    );
+  }
+}
+
+class _LiveMemberAvatar extends StatelessWidget {
+  const _LiveMemberAvatar({required this.uid, required this.fallback, this.size = 40});
+  final String uid;
+  final String fallback;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance.doc('users/$uid').snapshots(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final photo = (data?['photoUrl'] as String?)?.trim() ?? (data?['photoURL'] as String?)?.trim();
+        final name = (data?['displayName'] as String?)?.trim() ?? (data?['name'] as String?)?.trim() ?? fallback;
+        if (photo != null && photo.isNotEmpty) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(size / 2),
+            child: Image.network(photo, width: size, height: size, fit: BoxFit.cover, errorBuilder: (_, __, ___) => CircleAvatar(radius: size/2, child: Text(name.characters.first))),
+          );
+        }
+        return CircleAvatar(radius: size/2, child: Text(name.characters.first));
+      },
+    );
+  }
+}
+
 class _MemberAvatar extends StatelessWidget {
-  const _MemberAvatar({required this.member, this.size = 40});
+  const _MemberAvatar({required this.member, this.size = 40, this.isSelf = false});
   final _SelectableMember member;
   final double size;
+  final bool isSelf;
 
   // Try to read typical avatar url property names from AppUser without compile-time dependency.
   static String? _tryGetAvatarUrl(AppUser? p) {
@@ -6609,10 +7238,15 @@ class _MemberAvatar extends StatelessWidget {
   Widget build(BuildContext context) {
     final url = _tryGetAvatarUrl(member.profile);
 
+    String label = member.displayName;
+    if (isSelf) {
+      final authName = FirebaseAuth.instance.currentUser?.displayName;
+      if (authName != null && authName.trim().isNotEmpty) label = authName.trim();
+    }
     final fallback = CircleAvatar(
       radius: size / 2,
       child: Text(
-        _initials(member.displayName),
+        _initials(label),
         style: TextStyle(fontSize: size / 2.8),
       ),
     );
@@ -6661,6 +7295,7 @@ class _DevMenuSheetState extends State<_DevMenuSheet> {
   bool _joinCommunity = true;
   bool _creating = false;
   String? _selectedUid;
+  final CommunityService _communityService = CommunityService();
 
   @override
   void initState() {
@@ -6755,6 +7390,38 @@ class _DevMenuSheetState extends State<_DevMenuSheet> {
                 widget.onAddPendingRequested();
               },
               label: const Text('承認待ちを3件追加'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.delete_forever),
+              onPressed: () async {
+                FocusScope.of(context).unfocus();
+                final confirmed = await showDialog<bool>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('未登録ユーザーの削除'),
+                    content: const Text('認証に存在しない UID を持つ memberships を検出して削除します。よろしいですか？'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('キャンセル')),
+                      FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('削除')),
+                    ],
+                  ),
+                );
+                if (confirmed != true) return;
+                // Run the cleanup in background and show a snackbar with result
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('未登録ユーザーの検出を開始します...')));
+                try {
+                  final result = await _cleanupOrphanMembers(widget.communityId);
+                  // After cleanup, ensure single-member ownership invariant.
+                  try {
+                    await _communityService.ensureSingleMemberIsOwner(widget.communityId);
+                  } catch (_) {}
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('削除完了: 削除された memberships=${result.deleted}、検出済み=${result.scanned}')));
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('削除に失敗しました: $e')));
+                }
+              },
+              label: const Text('未登録ユーザーのmembershipsを削除'),
             ),
             const SizedBox(height: 20),
             const Divider(),
@@ -6968,6 +7635,58 @@ class _DevMenuSheetState extends State<_DevMenuSheet> {
       SnackBar(content: Text(message)),
     );
   }
+
+  /// Scans memberships for the given community and deletes entries whose
+  /// `uid` does not exist in the `users` collection. Returns counts.
+  Future<_CleanupResult> _cleanupOrphanMembers(String communityId) async {
+    final fs = FirebaseFirestore.instance;
+    final refs = FirestoreRefs(fs);
+    final membershipColl = refs.memberships();
+
+    final query = await membershipColl.where('cid', isEqualTo: communityId).get();
+    int scanned = 0;
+    int deleted = 0;
+    for (final doc in query.docs) {
+      scanned++;
+      // When using a typed converter, doc.data() returns a Membership.
+      // Support both Membership and raw Map<String, dynamic> cases.
+      String uid = '';
+      try {
+        final dynamic d = doc.data();
+        if (d is Membership) {
+          uid = d.userId;
+        } else if (d is Map<String, dynamic>) {
+          uid = (d['uid'] as String?) ?? (d['userId'] as String?) ?? '';
+        } else {
+          // Fallback: attempt to read field via snapshot's get
+          try {
+            uid = doc.get('uid') as String? ?? doc.get('userId') as String? ?? '';
+          } catch (_) {
+            uid = '';
+          }
+        }
+      } catch (_) {
+        uid = '';
+      }
+
+      if (uid.isEmpty) continue;
+
+      final userDoc = await refs.users().doc(uid).get().catchError((_) => null);
+      final exists = userDoc != null && userDoc.exists;
+      if (!exists) {
+        // delete membership doc
+        await membershipColl.doc(doc.id).delete();
+        deleted++;
+      }
+    }
+    return _CleanupResult(scanned: scanned, deleted: deleted);
+  }
+}
+
+class _CleanupResult {
+  const _CleanupResult({required this.scanned, required this.deleted});
+  final int scanned;
+  final int deleted;
 }
 
 class _InfoChip extends StatelessWidget {
@@ -7085,7 +7804,7 @@ class _ErrorCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
+          SelectableText(
             message,
             style: const TextStyle(color: _kTextSub),
           ),

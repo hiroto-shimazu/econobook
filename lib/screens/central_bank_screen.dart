@@ -47,25 +47,12 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
   final CommunityService _communityService = CommunityService();
   final LedgerService _ledgerService = LedgerService();
   final RequestService _requestService = RequestService();
+  final Set<_BankActionType> _pendingActions = <_BankActionType>{};
+  bool _autoInvoiceOnLend = true;
 
   late Future<Map<String, dynamic>?> _membershipFuture;
   late Future<List<_MemberOption>> _membersFuture;
 
-  final TextEditingController _sendAmountCtrl = TextEditingController();
-  final TextEditingController _sendMemoCtrl = TextEditingController();
-  String? _sendTargetUid;
-  bool _sending = false;
-
-  final TextEditingController _requestAmountCtrl = TextEditingController();
-  final TextEditingController _requestMemoCtrl = TextEditingController();
-  String? _requestTargetUid;
-  bool _creatingRequest = false;
-
-  final TextEditingController _loanAmountCtrl = TextEditingController();
-  final TextEditingController _loanMemoCtrl = TextEditingController();
-  String? _loanTargetUid;
-  bool _loaning = false;
-  bool _createRepaymentRequest = true;
   final TextEditingController _initialGrantCtrl = TextEditingController();
   final TextEditingController _treasuryAdjustCtrl = TextEditingController();
   String _balanceMode = 'private';
@@ -89,12 +76,6 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
 
   @override
   void dispose() {
-    _sendAmountCtrl.dispose();
-    _sendMemoCtrl.dispose();
-    _requestAmountCtrl.dispose();
-    _requestMemoCtrl.dispose();
-    _loanAmountCtrl.dispose();
-    _loanMemoCtrl.dispose();
     _initialGrantCtrl.dispose();
     _treasuryAdjustCtrl.dispose();
     super.dispose();
@@ -127,12 +108,6 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
     return result;
   }
 
-  double? _parseAmount(String raw) {
-    final sanitized = raw.trim().replaceAll(',', '');
-    if (sanitized.isEmpty) return null;
-    return double.tryParse(sanitized);
-  }
-
   bool _setEquals(Set<String> a, Set<String> b) {
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
@@ -161,8 +136,8 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
           final membershipData = membershipSnap.data;
           final membershipRole =
               (membershipData?['role'] as String?) ?? 'member';
-          final membershipHasPermission =
-              membershipRole == 'owner' || (membershipData?['canManageBank'] == true);
+          final membershipHasPermission = membershipRole == 'owner' ||
+              (membershipData?['canManageBank'] == true);
 
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
@@ -340,51 +315,16 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
                             },
                           ),
                           const SizedBox(height: 16),
-                          _CentralBankActionCard(
-                            title: '中央銀行から送金',
-                            description: 'メンバーへ直接残高を送金します',
-                            amountController: _sendAmountCtrl,
-                            memoController: _sendMemoCtrl,
-                            selectedUid: _sendTargetUid,
-                            onChangedUid: (value) =>
-                                setState(() => _sendTargetUid = value),
-                            onSubmit: membersLoading
-                                ? null
-                                : () => _submitSend(currency),
-                            submitting: _sending,
+                          _BankActionsSection(
                             members: members,
-                          ),
-                          const SizedBox(height: 16),
-                          _CentralBankActionCard(
-                            title: '中央銀行から請求',
-                            description: 'メンバーに対して返金や徴収を依頼します',
-                            amountController: _requestAmountCtrl,
-                            memoController: _requestMemoCtrl,
-                            selectedUid: _requestTargetUid,
-                            onChangedUid: (value) =>
-                                setState(() => _requestTargetUid = value),
-                            onSubmit: membersLoading
-                                ? null
-                                : () => _submitCentralBankRequest(),
-                            submitting: _creatingRequest,
-                            members: members,
-                            actionLabel: '請求を送信',
-                          ),
-                          const SizedBox(height: 16),
-                          _LoanActionCard(
-                            amountController: _loanAmountCtrl,
-                            memoController: _loanMemoCtrl,
-                            selectedUid: _loanTargetUid,
-                            onChangedUid: (value) =>
-                                setState(() => _loanTargetUid = value),
-                            onSubmit: membersLoading
-                                ? null
-                                : () => _submitLoan(currency),
-                            submitting: _loaning,
-                            members: members,
-                            createRepaymentRequest: _createRepaymentRequest,
-                            onChangedCreateRequest: (value) => setState(
-                                () => _createRepaymentRequest = value ?? true),
+                            currency: currency,
+                            loading: membersLoading,
+                            pendingTypes: _pendingActions,
+                            onAction: (type) => _openActionFlow(
+                              type: type,
+                              currency: currency,
+                              members: members,
+                            ),
                           ),
                         ],
                       ],
@@ -399,125 +339,130 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
     );
   }
 
-  Future<void> _submitSend(CommunityCurrency currency) async {
-    final target = _sendTargetUid;
-    final amount = _parseAmount(_sendAmountCtrl.text);
-    if (target == null || target.isEmpty) {
-      _showSnack('送金先を選択してください');
+  Future<void> _openActionFlow({
+    required _BankActionType type,
+    required CommunityCurrency currency,
+    required List<_MemberOption> members,
+  }) async {
+    if (members.isEmpty) {
+      _showSnack('操作できるメンバーがいません');
       return;
     }
-    if (amount == null || amount <= 0) {
-      _showSnack('金額を正しく入力してください');
-      return;
-    }
+    final config = _bankActionConfigs[type]!;
+    final result = await showModalBottomSheet<_BankActionInput>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _BankActionSheet(
+        config: config,
+        members: members,
+        currency: currency,
+        initialAutoInvoice: _autoInvoiceOnLend,
+        showAutoInvoiceToggle: type == _BankActionType.lend,
+      ),
+    );
+    if (result == null || !mounted) return;
 
-    setState(() => _sending = true);
+    setState(() => _pendingActions.add(type));
     try {
-      await _ledgerService.recordTransfer(
-        communityId: widget.communityId,
-        fromUid: kCentralBankUid,
-        toUid: target,
-        amount: amount,
-        memo: _sendMemoCtrl.text.trim().isEmpty
-            ? '中央銀行送金'
-            : _sendMemoCtrl.text.trim(),
-        createdBy: widget.user.uid,
-      );
-      if (!mounted) return;
-      _sendAmountCtrl.clear();
-      _sendMemoCtrl.clear();
-      setState(() => _sendTargetUid = null);
-      _showSnack('送金しました (${amount.toStringAsFixed(currency.precision)})');
-    } catch (e) {
-      _showSnack('送金に失敗しました: $e');
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
-  }
-
-  Future<void> _submitCentralBankRequest() async {
-    final target = _requestTargetUid;
-    final amount = _parseAmount(_requestAmountCtrl.text);
-    if (target == null || target.isEmpty) {
-      _showSnack('請求先を選択してください');
-      return;
-    }
-    if (amount == null || amount <= 0) {
-      _showSnack('金額を正しく入力してください');
-      return;
-    }
-
-    setState(() => _creatingRequest = true);
-    try {
-      await _requestService.createRequest(
-        communityId: widget.communityId,
-        fromUid: kCentralBankUid,
-        toUid: target,
-        amount: amount,
-        memo: _requestMemoCtrl.text.trim().isEmpty
-            ? '中央銀行からの請求'
-            : _requestMemoCtrl.text.trim(),
-        createdBy: widget.user.uid,
-      );
-      if (!mounted) return;
-      _requestAmountCtrl.clear();
-      _requestMemoCtrl.clear();
-      setState(() => _requestTargetUid = null);
-      _showSnack('請求を作成しました');
-    } catch (e) {
-      _showSnack('請求の作成に失敗しました: $e');
-    } finally {
-      if (mounted) setState(() => _creatingRequest = false);
-    }
-  }
-
-  Future<void> _submitLoan(CommunityCurrency currency) async {
-    final target = _loanTargetUid;
-    final amount = _parseAmount(_loanAmountCtrl.text);
-    if (target == null || target.isEmpty) {
-      _showSnack('貸出先を選択してください');
-      return;
-    }
-    if (amount == null || amount <= 0) {
-      _showSnack('金額を正しく入力してください');
-      return;
-    }
-
-    setState(() => _loaning = true);
-    try {
-      final memoText = _loanMemoCtrl.text.trim();
-      await _ledgerService.recordTransfer(
-        communityId: widget.communityId,
-        fromUid: kCentralBankUid,
-        toUid: target,
-        amount: amount,
-        memo: memoText.isEmpty ? '中央銀行貸出' : memoText,
-        createdBy: widget.user.uid,
-      );
-
-      if (_createRepaymentRequest) {
-        await _requestService.createRequest(
-          communityId: widget.communityId,
-          fromUid: kCentralBankUid,
-          toUid: target,
-          amount: amount,
-          memo: memoText.isEmpty ? '貸出返済のお願い' : memoText,
-          createdBy: widget.user.uid,
-        );
+      switch (type) {
+        case _BankActionType.issue:
+          await _ledgerService.recordTransfer(
+            communityId: widget.communityId,
+            fromUid: kCentralBankUid,
+            toUid: result.memberUid,
+            amount: result.amount,
+            memo: _normalizeMemo(result.memo, config.defaultMemo),
+            createdBy: widget.user.uid,
+            entryType: 'issue',
+          );
+          _showActionSuccess('発行しました', currency, result.amount);
+          break;
+        case _BankActionType.redeem:
+          await _ledgerService.recordTransfer(
+            communityId: widget.communityId,
+            fromUid: result.memberUid,
+            toUid: kCentralBankUid,
+            amount: result.amount,
+            memo: _normalizeMemo(result.memo, config.defaultMemo),
+            createdBy: widget.user.uid,
+            entryType: 'redeem',
+            enforceSufficientFunds: true,
+          );
+          _showActionSuccess('回収しました', currency, result.amount);
+          break;
+        case _BankActionType.lend:
+          await _ledgerService.recordTransfer(
+            communityId: widget.communityId,
+            fromUid: kCentralBankUid,
+            toUid: result.memberUid,
+            amount: result.amount,
+            memo: _normalizeMemo(result.memo, config.defaultMemo),
+            createdBy: widget.user.uid,
+            entryType: 'lend',
+          );
+          if (result.createRepaymentRequest) {
+            await _requestService.createRequest(
+              communityId: widget.communityId,
+              fromUid: kCentralBankUid,
+              toUid: result.memberUid,
+              amount: result.amount,
+              memo: _normalizeMemo(
+                result.memo,
+                '貸出返済のお願い',
+              ),
+              createdBy: widget.user.uid,
+              type: 'invoice',
+            );
+            _showActionSuccess('貸出と返済請求を登録しました', currency, result.amount);
+          } else {
+            _showActionSuccess('貸出を記録しました', currency, result.amount);
+          }
+          _autoInvoiceOnLend = result.createRepaymentRequest;
+          break;
+        case _BankActionType.invoice:
+          await _requestService.createRequest(
+            communityId: widget.communityId,
+            fromUid: kCentralBankUid,
+            toUid: result.memberUid,
+            amount: result.amount,
+            memo: _normalizeMemo(result.memo, config.defaultMemo),
+            createdBy: widget.user.uid,
+            type: 'invoice',
+          );
+          _showActionSuccess('請求を送信しました', currency, result.amount);
+          break;
+        case _BankActionType.gift:
+          await _ledgerService.recordTransfer(
+            communityId: widget.communityId,
+            fromUid: kCentralBankUid,
+            toUid: result.memberUid,
+            amount: result.amount,
+            memo: _normalizeMemo(result.memo, config.defaultMemo),
+            createdBy: widget.user.uid,
+            entryType: 'gift',
+          );
+          _showActionSuccess('贈与しました', currency, result.amount);
+          break;
       }
-
-      if (!mounted) return;
-      _loanAmountCtrl.clear();
-      _loanMemoCtrl.clear();
-      setState(() {
-        _loanTargetUid = null;
-      });
-      _showSnack('貸出を記録しました (${amount.toStringAsFixed(currency.precision)})');
     } catch (e) {
-      _showSnack('貸出の記録に失敗しました: $e');
+      _showSnack('${config.label}に失敗しました: $e');
     } finally {
-      if (mounted) setState(() => _loaning = false);
+      if (mounted) {
+        setState(() => _pendingActions.remove(type));
+      }
     }
+  }
+
+  String _normalizeMemo(String? memo, String fallback) {
+    final trimmed = memo?.trim() ?? '';
+    return trimmed.isEmpty ? fallback : trimmed;
+  }
+
+  void _showActionSuccess(
+      String message, CommunityCurrency currency, double amount) {
+    final formatted = amount.toStringAsFixed(currency.precision);
+    _showSnack('$message ($formatted ${currency.code})');
   }
 
   void _showSnack(String message) {
@@ -611,7 +556,6 @@ class _MemberOption {
   final String name;
 }
 
-// (moved proper _CentralBankActionCard definition below)
 class _CentralBankSettingsCard extends StatelessWidget {
   const _CentralBankSettingsCard({
     required this.currency,
@@ -699,33 +643,153 @@ class _CentralBankSettingsCard extends StatelessWidget {
   }
 }
 
-class _CentralBankActionCard extends StatelessWidget {
-  const _CentralBankActionCard({
-    required this.title,
+enum _BankActionType { issue, redeem, lend, invoice, gift }
+
+class _BankActionConfig {
+  const _BankActionConfig({
+    required this.type,
+    required this.label,
     required this.description,
-    required this.amountController,
-    required this.memoController,
-    required this.members,
-    required this.selectedUid,
-    required this.onChangedUid,
-    required this.onSubmit,
-    required this.submitting,
-    this.actionLabel,
+    required this.buttonLabel,
+    required this.defaultMemo,
+    required this.icon,
   });
 
-  final String title;
+  final _BankActionType type;
+  final String label;
   final String description;
-  final TextEditingController amountController;
-  final TextEditingController memoController;
+  final String buttonLabel;
+  final String defaultMemo;
+  final IconData icon;
+}
+
+class _BankActionInput {
+  const _BankActionInput({
+    required this.memberUid,
+    required this.amount,
+    this.memo,
+    this.createRepaymentRequest = false,
+  });
+
+  final String memberUid;
+  final double amount;
+  final String? memo;
+  final bool createRepaymentRequest;
+}
+
+const Map<_BankActionType, _BankActionConfig> _bankActionConfigs = {
+  _BankActionType.issue: _BankActionConfig(
+    type: _BankActionType.issue,
+    label: 'メンバーに通貨を発行',
+    description: '中央銀行の残高から選んだメンバーに通貨を配布します。',
+    buttonLabel: '発行',
+    defaultMemo: '中央銀行からの発行',
+    icon: Icons.trending_up_rounded,
+  ),
+  _BankActionType.redeem: _BankActionConfig(
+    type: _BankActionType.redeem,
+    label: 'メンバーから回収',
+    description: 'メンバーの残高から中央銀行へ通貨を戻します。',
+    buttonLabel: '回収',
+    defaultMemo: '中央銀行が回収',
+    icon: Icons.trending_down_rounded,
+  ),
+  _BankActionType.lend: _BankActionConfig(
+    type: _BankActionType.lend,
+    label: '貸し出しを記録',
+    description: '貸し付けを記録し、必要に応じて返済リクエストを作成します。',
+    buttonLabel: '貸出',
+    defaultMemo: '中央銀行からの貸出',
+    icon: Icons.volunteer_activism_outlined,
+  ),
+  _BankActionType.invoice: _BankActionConfig(
+    type: _BankActionType.invoice,
+    label: '請求を送信',
+    description: '返済や支払いの請求をメンバーに送信します。',
+    buttonLabel: '請求',
+    defaultMemo: '中央銀行からの請求',
+    icon: Icons.request_quote_outlined,
+  ),
+  _BankActionType.gift: _BankActionConfig(
+    type: _BankActionType.gift,
+    label: '贈与として送金',
+    description: '贈り物として中央銀行から通貨を送ります。',
+    buttonLabel: '贈与',
+    defaultMemo: '中央銀行からの贈与',
+    icon: Icons.card_giftcard_outlined,
+  ),
+};
+
+const List<_BankActionType> _bankActionOrder = <_BankActionType>[
+  _BankActionType.issue,
+  _BankActionType.redeem,
+  _BankActionType.lend,
+  _BankActionType.invoice,
+  _BankActionType.gift,
+];
+
+class _BankActionsSection extends StatelessWidget {
+  const _BankActionsSection({
+    required this.members,
+    required this.currency,
+    required this.loading,
+    required this.pendingTypes,
+    required this.onAction,
+  });
+
   final List<_MemberOption> members;
-  final String? selectedUid;
-  final ValueChanged<String?> onChangedUid;
-  final VoidCallback? onSubmit;
-  final bool submitting;
-  final String? actionLabel;
+  final CommunityCurrency currency;
+  final bool loading;
+  final Set<_BankActionType> pendingTypes;
+  final ValueChanged<_BankActionType> onAction;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sections = <Widget>[
+      const Text('中央銀行の操作',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+      const SizedBox(height: 8),
+      Text(
+        'メンバーへの送金や請求を行います（単位: ${currency.code}）。',
+        style: theme.textTheme.bodySmall?.copyWith(color: Colors.black54),
+      ),
+      const SizedBox(height: 12),
+    ];
+
+    if (loading) {
+      sections.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 16),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      );
+    } else if (members.isEmpty) {
+      sections.add(
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Text(
+            '操作できるメンバーがまだいません。メンバーを招待してください。',
+            style: TextStyle(color: Colors.black54),
+          ),
+        ),
+      );
+    } else {
+      for (final type in _bankActionOrder) {
+        final config = _bankActionConfigs[type]!;
+        sections.add(
+          _BankActionRow(
+            config: config,
+            pending: pendingTypes.contains(type),
+            onPressed: () => onAction(type),
+          ),
+        );
+        if (type != _bankActionOrder.last) {
+          sections.add(const Divider(height: 24));
+        }
+      }
+    }
+
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -733,52 +797,298 @@ class _CentralBankActionCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title,
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            Text(description, style: const TextStyle(color: Colors.black54)),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: selectedUid,
-              items: [
-                for (final member in members)
-                  DropdownMenuItem(
-                    value: member.uid,
-                    child: Text(member.name),
+          children: sections,
+        ),
+      ),
+    );
+  }
+}
+
+class _BankActionRow extends StatelessWidget {
+  const _BankActionRow({
+    required this.config,
+    required this.pending,
+    required this.onPressed,
+  });
+
+  final _BankActionConfig config;
+  final bool pending;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(config.icon, size: 28, color: theme.colorScheme.primary),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  config.label,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
                   ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  config.description,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.black54,
+                  ),
+                ),
               ],
-              decoration: const InputDecoration(labelText: '対象メンバー'),
-              onChanged: onSubmit == null ? null : onChangedUid,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: amountController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: '金額'),
+          ),
+          const SizedBox(width: 12),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 104),
+            child: FilledButton(
+              onPressed: pending ? null : onPressed,
+              child: pending
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(config.buttonLabel),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: memoController,
-              decoration: const InputDecoration(labelText: 'メモ（任意）'),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: submitting ? null : onSubmit,
-                child: submitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(actionLabel ?? '送信'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BankActionSheet extends StatefulWidget {
+  const _BankActionSheet({
+    required this.config,
+    required this.members,
+    required this.currency,
+    required this.initialAutoInvoice,
+    required this.showAutoInvoiceToggle,
+  });
+
+  final _BankActionConfig config;
+  final List<_MemberOption> members;
+  final CommunityCurrency currency;
+  final bool initialAutoInvoice;
+  final bool showAutoInvoiceToggle;
+
+  @override
+  State<_BankActionSheet> createState() => _BankActionSheetState();
+}
+
+class _BankActionSheetState extends State<_BankActionSheet> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _amountCtrl;
+  late final TextEditingController _memoCtrl;
+  String? _selectedUid;
+  late bool _autoInvoice;
+
+  @override
+  void initState() {
+    super.initState();
+    _amountCtrl = TextEditingController();
+    _memoCtrl = TextEditingController();
+    _selectedUid = widget.members.isNotEmpty ? widget.members.first.uid : null;
+    _autoInvoice = widget.initialAutoInvoice;
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    _memoCtrl.dispose();
+    super.dispose();
+  }
+
+  double? _parseAmount(String raw) {
+    final sanitized = raw.trim().replaceAll(',', '');
+    if (sanitized.isEmpty) return null;
+    return double.tryParse(sanitized);
+  }
+
+  String? _validateAmount(String? raw) {
+    final sanitized = raw?.trim().replaceAll(',', '') ?? '';
+    if (sanitized.isEmpty) {
+      return '金額を入力してください';
+    }
+    final value = double.tryParse(sanitized);
+    if (value == null) {
+      return '数値を入力してください';
+    }
+    if (value <= 0) {
+      return '0より大きい金額を入力してください';
+    }
+    final dotIndex = sanitized.indexOf('.');
+    if (dotIndex != -1) {
+      final decimals = sanitized.length - dotIndex - 1;
+      if (decimals > widget.currency.precision) {
+        if (widget.currency.precision == 0) {
+          return '小数点以下は入力できません';
+        }
+        return '小数点以下は${widget.currency.precision}桁までです';
+      }
+    }
+    return null;
+  }
+
+  void _submit() {
+    if (_selectedUid == null) return;
+    if (!_formKey.currentState!.validate()) return;
+    final amount = _parseAmount(_amountCtrl.text);
+    if (amount == null) return;
+    final memo = _memoCtrl.text.trim();
+    Navigator.of(context).pop(
+      _BankActionInput(
+        memberUid: _selectedUid!,
+        amount: amount,
+        memo: memo.isEmpty ? null : memo,
+        createRepaymentRequest:
+            widget.showAutoInvoiceToggle ? _autoInvoice : false,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return FractionallySizedBox(
+      heightFactor: 0.88,
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        child: Material(
+          color: theme.colorScheme.surface,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                24,
+                24,
+                24,
+                24 + bottomInset,
               ),
-            )
-          ],
+              child: Form(
+                key: _formKey,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(widget.config.icon,
+                              color: theme.colorScheme.primary),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              widget.config.label,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        widget.config.description,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      DropdownButtonFormField<String>(
+                        initialValue: _selectedUid,
+                        isExpanded: true,
+                        items: [
+                          for (final member in widget.members)
+                            DropdownMenuItem(
+                              value: member.uid,
+                              child: Text(member.name),
+                            ),
+                        ],
+                        decoration: const InputDecoration(labelText: '対象メンバー'),
+                        onChanged: (value) {
+                          setState(() => _selectedUid = value);
+                        },
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return '対象メンバーを選択してください';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _amountCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: '金額',
+                          suffixText: widget.currency.code,
+                          helperText: widget.currency.precision > 0
+                              ? '小数点以下は${widget.currency.precision}桁まで入力できます'
+                              : '整数で入力してください',
+                        ),
+                        validator: _validateAmount,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _memoCtrl,
+                        decoration: InputDecoration(
+                          labelText: 'メモ（任意）',
+                          hintText: widget.config.defaultMemo,
+                        ),
+                        maxLines: 2,
+                      ),
+                      if (widget.showAutoInvoiceToggle) ...[
+                        const SizedBox(height: 16),
+                        SwitchListTile.adaptive(
+                          value: _autoInvoice,
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('返済リクエストも同時に作成する'),
+                          subtitle: const Text(
+                            'オンにすると同額の請求がメンバーに送られます',
+                          ),
+                          onChanged: (value) =>
+                              setState(() => _autoInvoice = value),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('キャンセル'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _selectedUid == null ? null : _submit,
+                              icon: Icon(widget.config.icon),
+                              label: Text(widget.config.buttonLabel),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -979,98 +1289,6 @@ class CentralBankTreasuryCard extends StatelessWidget {
                     : const Text('残高を更新'),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LoanActionCard extends StatelessWidget {
-  const _LoanActionCard({
-    required this.amountController,
-    required this.memoController,
-    required this.members,
-    required this.selectedUid,
-    required this.onChangedUid,
-    required this.onSubmit,
-    required this.submitting,
-    required this.createRepaymentRequest,
-    required this.onChangedCreateRequest,
-  });
-
-  final TextEditingController amountController;
-  final TextEditingController memoController;
-  final List<_MemberOption> members;
-  final String? selectedUid;
-  final ValueChanged<String?> onChangedUid;
-  final VoidCallback? onSubmit;
-  final bool submitting;
-  final bool createRepaymentRequest;
-  final ValueChanged<bool?> onChangedCreateRequest;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('中央銀行から貸出',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 4),
-            const Text('メンバーへ資金を貸し出し、必要に応じて返済リクエストを作成します',
-                style: TextStyle(color: Colors.black54)),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: selectedUid,
-              items: [
-                for (final member in members)
-                  DropdownMenuItem(
-                    value: member.uid,
-                    child: Text(member.name),
-                  ),
-              ],
-              decoration: const InputDecoration(labelText: '対象メンバー'),
-              onChanged: onSubmit == null ? null : onChangedUid,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: amountController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: '貸出金額'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: memoController,
-              decoration: const InputDecoration(labelText: 'メモ（任意）'),
-            ),
-            const SizedBox(height: 12),
-            CheckboxListTile(
-              value: createRepaymentRequest,
-              onChanged: submitting ? null : onChangedCreateRequest,
-              contentPadding: EdgeInsets.zero,
-              title: const Text('返済リクエストを同時に作成する'),
-              subtitle: const Text('オンにすると同額の請求が自動で登録されます'),
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: submitting ? null : onSubmit,
-                child: submitting
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('貸出を記録'),
-              ),
-            )
           ],
         ),
       ),

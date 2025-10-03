@@ -1,8 +1,11 @@
 import 'dart:async';
-import 'package:characters/characters.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/chat_message.dart';
 import '../models/community.dart';
@@ -84,6 +87,8 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
   Stream<List<ChatMessage>>? _messageStream;
   Stream<DocumentSnapshot<Map<String, dynamic>>>? _threadStream;
   Community? _community;
+  String _partnerDisplayName = '';
+  String? _partnerPhotoUrl;
   ConversationSummary? _summary;
   Object? _summaryError;
   bool _summaryLoading = false;
@@ -103,8 +108,11 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
       communityId: widget.communityId,
       threadId: widget.threadId,
     );
+    _partnerDisplayName = widget.partnerDisplayName;
+    _partnerPhotoUrl = widget.partnerPhotoUrl;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadCommunity();
+      _loadPartnerProfile();
       _markAsRead();
     });
   }
@@ -130,6 +138,44 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _summaryError = e);
+    }
+  }
+
+  Future<void> _loadPartnerProfile() async {
+    try {
+      if (widget.partnerUid.isEmpty) return;
+      final snap = await FirebaseFirestore.instance
+          .doc('users/${widget.partnerUid}')
+          .get();
+      if (!snap.exists) return;
+      final data = snap.data();
+      if (data == null) return;
+      final candidate = (data['displayName'] as String?)?.trim();
+      String? photo;
+      for (final key in const [
+        'photoUrl',
+        'photoURL',
+        'avatarUrl',
+        'imageUrl',
+        'iconUrl',
+      ]) {
+        final value = (data[key] as String?)?.trim();
+        if (value != null && value.isNotEmpty) {
+          photo = value;
+          break;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        if (candidate != null && candidate.isNotEmpty) {
+          _partnerDisplayName = candidate;
+        }
+        if (photo != null && photo.isNotEmpty) {
+          _partnerPhotoUrl = photo;
+        }
+      });
+    } catch (_) {
+      // ignore profile load errors
     }
   }
 
@@ -242,7 +288,9 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
       await _refreshSummary();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${community.currency.code} ${amount.toStringAsFixed(community.currency.precision)} を送金しました')),
+        SnackBar(
+            content: Text(
+                '${community.currency.code} ${amount.toStringAsFixed(community.currency.precision)} を送金しました')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -408,14 +456,20 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
           CircleAvatar(
             radius: 18,
             backgroundColor: _kMainBlue.withOpacity(0.15),
-            backgroundImage: widget.partnerPhotoUrl == null ||
-                    widget.partnerPhotoUrl!.isEmpty
+            backgroundImage: (_partnerPhotoUrl ?? widget.partnerPhotoUrl) ==
+                        null ||
+                    (_partnerPhotoUrl ?? widget.partnerPhotoUrl)!.isEmpty
                 ? null
-                : NetworkImage(widget.partnerPhotoUrl!),
-            child: widget.partnerPhotoUrl == null ||
-                    widget.partnerPhotoUrl!.isEmpty
+                : NetworkImage((_partnerPhotoUrl ?? widget.partnerPhotoUrl)!),
+            child: (_partnerPhotoUrl ?? widget.partnerPhotoUrl) == null ||
+                    (_partnerPhotoUrl ?? widget.partnerPhotoUrl)!.isEmpty
                 ? Text(
-                    widget.partnerDisplayName.characters.first.toUpperCase(),
+                    (_partnerDisplayName.isNotEmpty
+                            ? _partnerDisplayName
+                            : widget.partnerDisplayName)
+                        .characters
+                        .first
+                        .toUpperCase(),
                     style: const TextStyle(
                         color: _kMainBlue, fontWeight: FontWeight.bold),
                   )
@@ -427,7 +481,9 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.partnerDisplayName,
+                  _partnerDisplayName.isNotEmpty
+                      ? _partnerDisplayName
+                      : widget.partnerDisplayName,
                   style: const TextStyle(
                     color: _kTextMain,
                     fontWeight: FontWeight.bold,
@@ -457,8 +513,8 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
   Widget _buildSummaryCard(String currencyCode) {
     final summary = _summary;
     final net = summary?.net ?? 0;
-    final pending = (summary?.pendingRequestCount ?? 0) +
-        (summary?.pendingTaskCount ?? 0);
+    final pending =
+        (summary?.pendingRequestCount ?? 0) + (summary?.pendingTaskCount ?? 0);
     final period = summary?.periodLabel ?? '';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -486,7 +542,7 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'あなた ↔ ${widget.partnerDisplayName} ($period)',
+                        'あなた ↔ ${_partnerDisplayName.isNotEmpty ? _partnerDisplayName : widget.partnerDisplayName} ($period)',
                         style: const TextStyle(
                           color: _kTextSub,
                           fontSize: 13,
@@ -546,9 +602,16 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
             else if (_summaryError != null)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  'サマリーを取得できませんでした: $_summaryError',
-                  style: const TextStyle(color: _kDangerRed, fontSize: 12),
+                child: _ErrorNotice(
+                  title: 'サマリーを取得できませんでした',
+                  error: _summaryError!,
+                  guidance: _guidanceForError(_summaryError!),
+                  debugLines: kDebugMode
+                      ? [
+                          'communityId=${widget.communityId}',
+                          'partnerUid=${widget.partnerUid}',
+                        ]
+                      : const [],
                 ),
               )
           ],
@@ -565,16 +628,52 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
     return StreamBuilder<List<ChatMessage>>(
       stream: messageStream,
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: _ErrorNotice(
+                title: 'メッセージの取得に失敗しました',
+                error: snapshot.error!,
+                guidance: _guidanceForError(snapshot.error!),
+                debugLines: kDebugMode
+                    ? [
+                        'communityId=${widget.communityId}',
+                        'threadId=${widget.threadId}',
+                      ]
+                    : const [],
+              ),
+            ),
+          );
+        }
         if (snapshot.connectionState == ConnectionState.waiting &&
             !snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
         final messages = snapshot.data ?? const <ChatMessage>[];
-  final entries = _buildTimelineEntries(messages);
+        final entries = _buildTimelineEntries(messages);
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: _threadStream,
           builder: (context, threadSnapshot) {
+            if (threadSnapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: _ErrorNotice(
+                    title: 'スレッド情報の取得に失敗しました',
+                    error: threadSnapshot.error!,
+                    guidance: _guidanceForError(threadSnapshot.error!),
+                    debugLines: kDebugMode
+                        ? [
+                            'communityId=${widget.communityId}',
+                            'threadId=${widget.threadId}',
+                          ]
+                        : const [],
+                  ),
+                ),
+              );
+            }
             int partnerUnread = 0;
             if (threadSnapshot.data?.exists == true) {
               final data = threadSnapshot.data!.data();
@@ -601,12 +700,16 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
                   return _DateChip(date: entry.date!);
                 }
                 final showTime = entry.showTime ?? true;
-                final isMine = entry.message!.senderUid == widget.currentUser.uid;
+                final isMine =
+                    entry.message!.senderUid == widget.currentUser.uid;
                 return _MessageBubble(
                   message: entry.message!,
                   isMine: isMine,
-                  partnerPhotoUrl: widget.partnerPhotoUrl,
-                  partnerInitial: widget.partnerDisplayName.characters
+                  partnerPhotoUrl: _partnerPhotoUrl ?? widget.partnerPhotoUrl,
+                  partnerInitial: (_partnerDisplayName.isNotEmpty
+                          ? _partnerDisplayName
+                          : widget.partnerDisplayName)
+                      .characters
                       .first
                       .toUpperCase(),
                   currencyCode: _community?.currency.code ?? 'ECO',
@@ -648,6 +751,24 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
       entries.add(_TimelineEntry.message(message, showTime: effectiveShow));
     }
     return entries;
+  }
+
+  List<String> _guidanceForError(Object error) {
+    if (error is FirebaseException) {
+      switch (error.code) {
+        case 'permission-denied':
+          return const [
+            'メンバーシップまたは該当する権限が不足しています。コミュニティの権限管理から銀行・メンバー権限を取得してください。',
+          ];
+        case 'failed-precondition':
+          return const [
+            'Firestore の複合インデックスが未作成の可能性があります。エラーメッセージ内の URL からインデックスを作成してください。',
+          ];
+        default:
+          break;
+      }
+    }
+    return const [];
   }
 
   Widget _buildComposer() {
@@ -846,7 +967,8 @@ Widget _buildActionRow() {
 }
 
 class _ActionExpandedButton extends StatelessWidget {
-  const _ActionExpandedButton({required this.icon, required this.label, required this.color});
+  const _ActionExpandedButton(
+      {required this.icon, required this.label, required this.color});
 
   final IconData icon;
   final String label;
@@ -942,8 +1064,10 @@ class _MessageBubble extends StatelessWidget {
     }
 
     final alignment = isMine ? Alignment.centerRight : Alignment.centerLeft;
-    final bool isSpecial =
-        message.isTransfer || message.isRequest || message.isSplit || message.isTask;
+    final bool isSpecial = message.isTransfer ||
+        message.isRequest ||
+        message.isSplit ||
+        message.isTask;
     final Color bubbleColor = isSpecial
         ? _buildCardColor(isMine)
         : (isMine ? _kBubbleMe : _kBubbleOther);
@@ -995,10 +1119,10 @@ class _MessageBubble extends StatelessWidget {
                 child: CircleAvatar(
                   radius: 16,
                   backgroundColor: _kMainBlue.withOpacity(0.15),
-                  backgroundImage: partnerPhotoUrl == null ||
-                          partnerPhotoUrl!.isEmpty
-                      ? null
-                      : NetworkImage(partnerPhotoUrl!),
+                  backgroundImage:
+                      partnerPhotoUrl == null || partnerPhotoUrl!.isEmpty
+                          ? null
+                          : NetworkImage(partnerPhotoUrl!),
                   child: partnerPhotoUrl == null || partnerPhotoUrl!.isEmpty
                       ? Text(
                           partnerInitial,
@@ -1010,43 +1134,41 @@ class _MessageBubble extends StatelessWidget {
                       : null,
                 ),
               ),
-              if (isMine && metaWidget != null)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: metaWidget,
-                ),
+            if (isMine && metaWidget != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: metaWidget,
+              ),
             Flexible(
               child: Container(
                 constraints: BoxConstraints(
                   maxWidth: MediaQuery.of(context).size.width * 0.68,
                 ),
                 decoration: BoxDecoration(
-                    color: bubbleColor,
+                  color: bubbleColor,
                   borderRadius: BorderRadius.only(
                     topLeft: const Radius.circular(24),
                     topRight: const Radius.circular(24),
-                    bottomLeft:
-                        Radius.circular(isMine ? 24 : 4),
-                    bottomRight:
-                        Radius.circular(isMine ? 4 : 24),
+                    bottomLeft: Radius.circular(isMine ? 24 : 4),
+                    bottomRight: Radius.circular(isMine ? 4 : 24),
                   ),
-                    border: isSpecial
-                        ? Border.all(
-                            color: isMine
-                                ? Colors.transparent
-                                : const Color(0xFFE2E8F0),
-                          )
-                        : null,
+                  border: isSpecial
+                      ? Border.all(
+                          color: isMine
+                              ? Colors.transparent
+                              : const Color(0xFFE2E8F0),
+                        )
+                      : null,
                 ),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: content,
               ),
             ),
-              if (!isMine && metaWidget != null) ...[
-                const SizedBox(width: 8),
-                metaWidget,
-              ],
+            if (!isMine && metaWidget != null) ...[
+              const SizedBox(width: 8),
+              metaWidget,
+            ],
           ],
         ),
       ),
@@ -1055,9 +1177,7 @@ class _MessageBubble extends StatelessWidget {
 
   Color _buildCardColor(bool isMine) {
     if (message.isTransfer) {
-      return isMine
-          ? _kSubGreen
-          : const Color(0xFFEFF4FF);
+      return isMine ? _kSubGreen : const Color(0xFFEFF4FF);
     }
     if (message.isRequest || message.isSplit) {
       return const Color(0xFFFFF7ED);
@@ -1175,7 +1295,8 @@ class _MessageBubble extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               '報酬: ${reward.toStringAsFixed(2)} $currencyCode',
-              style: const TextStyle(color: _kSubGreen, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                  color: _kSubGreen, fontWeight: FontWeight.w600),
             ),
           ],
           const SizedBox(height: 8),
@@ -1222,7 +1343,8 @@ class _RequestStatusChip extends StatelessWidget {
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: requestDoc.snapshots(),
       builder: (context, snapshot) {
-        final status = (snapshot.data?.data()?['status'] as String?) ?? 'pending';
+        final status =
+            (snapshot.data?.data()?['status'] as String?) ?? 'pending';
         final label = switch (status) {
           'approved' => '承認済み',
           'rejected' => '却下',
@@ -1243,7 +1365,8 @@ class _RequestStatusChip extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+            style: TextStyle(
+                color: color, fontSize: 12, fontWeight: FontWeight.w600),
           ),
         );
       },
@@ -1293,7 +1416,8 @@ class _TaskStatusChip extends StatelessWidget {
           ),
           child: Text(
             label,
-            style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
+            style: TextStyle(
+                color: color, fontSize: 12, fontWeight: FontWeight.w600),
           ),
         );
       },
@@ -1376,8 +1500,7 @@ class _AmountSheetState extends State<_AmountSheet> {
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1395,9 +1518,8 @@ class _AmountSheetState extends State<_AmountSheet> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _submitting
-                      ? null
-                      : () => Navigator.of(context).pop(),
+                  onPressed:
+                      _submitting ? null : () => Navigator.of(context).pop(),
                   child: const Text('キャンセル'),
                 ),
               ),
@@ -1482,8 +1604,7 @@ class _SplitSheetState extends State<_SplitSheet> {
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1501,9 +1622,8 @@ class _SplitSheetState extends State<_SplitSheet> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _submitting
-                      ? null
-                      : () => Navigator.of(context).pop(),
+                  onPressed:
+                      _submitting ? null : () => Navigator.of(context).pop(),
                   child: const Text('キャンセル'),
                 ),
               ),
@@ -1600,8 +1720,7 @@ class _TaskSheetState extends State<_TaskSheet> {
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
-            keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1619,9 +1738,8 @@ class _TaskSheetState extends State<_TaskSheet> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _submitting
-                      ? null
-                      : () => Navigator.of(context).pop(),
+                  onPressed:
+                      _submitting ? null : () => Navigator.of(context).pop(),
                   child: const Text('キャンセル'),
                 ),
               ),
@@ -1658,8 +1776,7 @@ class _TaskSheetState extends State<_TaskSheet> {
     Navigator.of(context).pop(_TaskInput(
       title: title,
       reward: reward,
-      description:
-          _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+      description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
     ));
   }
 }
@@ -1705,11 +1822,266 @@ class _SplitInput {
 }
 
 class _TaskInput {
-  const _TaskInput({required this.title, required this.reward, this.description});
+  const _TaskInput(
+      {required this.title, required this.reward, this.description});
 
   final String title;
   final num reward;
   final String? description;
+}
+
+class _ErrorNotice extends StatelessWidget {
+  const _ErrorNotice({
+    required this.title,
+    required this.error,
+    this.guidance = const [],
+    this.debugLines = const [],
+  });
+
+  final String title;
+  final Object error;
+  final List<String> guidance;
+  final List<String> debugLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final message = _describeError(error);
+    final baseStyle = theme.textTheme.bodyMedium?.copyWith(
+          color: _kDangerRed,
+          height: 1.4,
+        ) ??
+        const TextStyle(color: _kDangerRed, fontSize: 13, height: 1.4);
+    final linkStyle = baseStyle.copyWith(
+      color: theme.colorScheme.primary,
+      decoration: TextDecoration.underline,
+      fontWeight: FontWeight.w600,
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF1F2),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _kDangerRed.withOpacity(0.2)),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: _kDangerRed, size: 28),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                        color: _kDangerRed,
+                        fontWeight: FontWeight.w700,
+                      ) ??
+                      const TextStyle(
+                        color: _kDangerRed,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                SelectableText.rich(
+                  TextSpan(
+                    children: _linkifyText(
+                      context,
+                      message,
+                      baseStyle,
+                      linkStyle,
+                    ),
+                  ),
+                  style: baseStyle,
+                ),
+                if (guidance.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ...guidance.map(
+                    (line) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            '・',
+                            style: TextStyle(
+                              color: _kDangerRed,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: SelectableText(
+                              line,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                    color: _kTextMain,
+                                    height: 1.4,
+                                  ) ??
+                                  const TextStyle(
+                                    color: _kTextMain,
+                                    fontSize: 12,
+                                    height: 1.4,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+                if (debugLines.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  ...debugLines.map(
+                    (line) => SelectableText(
+                      line,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                            color: Colors.black54,
+                            fontFamily: 'monospace',
+                          ) ??
+                          const TextStyle(
+                            color: Colors.black54,
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                          ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 8),
+            child: IconButton(
+              tooltip: 'コピー',
+              icon: const Icon(Icons.copy_rounded, color: _kDangerRed),
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final clipboardText = _buildClipboardText(
+                  title,
+                  message,
+                  guidance,
+                  debugLines,
+                );
+                await Clipboard.setData(ClipboardData(text: clipboardText));
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('エラー情報をコピーしました')),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _describeError(Object error) {
+    if (error is FirebaseException) {
+      final buffer = StringBuffer();
+      if (error.code.isNotEmpty) {
+        buffer.write('[${error.code}] ');
+      }
+      if (error.message != null && error.message!.trim().isNotEmpty) {
+        buffer.write(error.message!.trim());
+      } else {
+        buffer.write(error.toString());
+      }
+      return buffer.toString();
+    }
+    return error.toString();
+  }
+
+  static String _buildClipboardText(
+    String title,
+    String message,
+    List<String> guidance,
+    List<String> debugLines,
+  ) {
+    final buffer = StringBuffer()
+      ..writeln(title)
+      ..writeln(message);
+    if (guidance.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Guidance:');
+      for (final line in guidance) {
+        buffer.writeln('- $line');
+      }
+    }
+    if (debugLines.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Debug:');
+      for (final line in debugLines) {
+        buffer.writeln(line);
+      }
+    }
+    return buffer.toString().trim();
+  }
+
+  static List<InlineSpan> _linkifyText(
+    BuildContext context,
+    String message,
+    TextStyle baseStyle,
+    TextStyle linkStyle,
+  ) {
+    final spans = <InlineSpan>[];
+    final urlPattern = RegExp(r'(https?:\/\/[^\s]+)', caseSensitive: false);
+    int start = 0;
+    for (final match in urlPattern.allMatches(message)) {
+      if (match.start > start) {
+        spans.add(TextSpan(
+          text: message.substring(start, match.start),
+          style: baseStyle,
+        ));
+      }
+      final matchText = match.group(0)!;
+      final trimmed = matchText.replaceFirst(RegExp(r'[,.;)\]]+$'), '');
+      final trailing = matchText.substring(trimmed.length);
+      spans.add(TextSpan(
+        text: trimmed,
+        style: linkStyle,
+        recognizer: TapGestureRecognizer()
+          ..onTap = () async {
+            final messenger = ScaffoldMessenger.of(context);
+            final uri = Uri.tryParse(trimmed);
+            if (uri == null) {
+              messenger.showSnackBar(
+                SnackBar(content: Text('URLを開けませんでした: $trimmed')),
+              );
+              return;
+            }
+            try {
+              final success = await launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+              );
+              if (!success) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('URLを開けませんでした: $trimmed')),
+                );
+              }
+            } catch (e) {
+              messenger.showSnackBar(
+                SnackBar(content: Text('URLを開けませんでした: $e')),
+              );
+            }
+          },
+      ));
+      if (trailing.isNotEmpty) {
+        spans.add(TextSpan(text: trailing, style: baseStyle));
+      }
+      start = match.end;
+    }
+    if (start < message.length) {
+      spans.add(TextSpan(text: message.substring(start), style: baseStyle));
+    }
+    if (spans.isEmpty) {
+      spans.add(TextSpan(text: message, style: baseStyle));
+    }
+    return spans;
+  }
 }
 
 _ConversationContext _conversationContextOf(BuildContext context) {

@@ -411,7 +411,7 @@ class _TalkTabState extends State<_TalkTab> {
   bool _detectMention(String message, String senderUid) {
     if (message.isEmpty || senderUid == widget.user.uid) return false;
     final lowerMessage = message.toLowerCase();
-    final displayName = widget.user.displayName;
+  final displayName = FirebaseAuth.instance.currentUser?.displayName ?? widget.user.displayName;
     if (displayName == null || displayName.trim().isEmpty) {
       return lowerMessage.contains('@${widget.user.uid.toLowerCase()}');
     }

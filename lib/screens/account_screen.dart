@@ -73,9 +73,9 @@ class _AccountScreenState extends State<AccountScreen> {
                         fontSize: 22, fontWeight: FontWeight.bold),
                   ),
                 ),
-                title: Text(name,
-                    style: const TextStyle(
-                        fontSize: 16, fontWeight: FontWeight.w700)),
+        title: Text(FirebaseAuth.instance.currentUser?.displayName ?? name,
+          style: const TextStyle(
+            fontSize: 16, fontWeight: FontWeight.w700)),
                 subtitle:
                     Text(handle, style: const TextStyle(color: Colors.black54)),
                 trailing: const Icon(Icons.chevron_right),
@@ -387,8 +387,10 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _editProfileDialog(Map<String, dynamic> userDoc) async {
-    final nameCtrl = TextEditingController(
-        text: (userDoc['name'] as String?) ?? (widget.user.displayName ?? ''));
+  final nameCtrl = TextEditingController(
+    text: (userDoc['name'] as String?) ??
+      (FirebaseAuth.instance.currentUser?.displayName ?? widget.user.displayName ?? ''),
+    );
     final handleCtrl =
         TextEditingController(text: (userDoc['handle'] as String?) ?? '');
     await showDialog<void>(
@@ -412,12 +414,32 @@ class _AccountScreenState extends State<AccountScreen> {
               child: const Text('キャンセル')),
           FilledButton(
             onPressed: () async {
-              await FirebaseFirestore.instance
-                  .doc('users/${widget.user.uid}')
-                  .set({
-                'name': nameCtrl.text.trim(),
-                'handle': handleCtrl.text.trim(),
+              final newName = nameCtrl.text.trim();
+              final newHandle = handleCtrl.text.trim();
+              final userRef = FirebaseFirestore.instance.doc('users/${widget.user.uid}');
+              // Save both legacy 'name' and canonical 'displayName' to cover codepaths
+              await userRef.set({
+                'name': newName,
+                'displayName': newName,
+                'handle': newHandle,
               }, SetOptions(merge: true));
+
+              // Update FirebaseAuth current user's displayName so UI that reads
+              // FirebaseAuth.instance.currentUser?.displayName updates immediately.
+              try {
+                final authUser = FirebaseAuth.instance.currentUser;
+                if (authUser != null && (authUser.displayName ?? '') != newName) {
+                  await authUser.updateDisplayName(newName);
+                  await authUser.reload();
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('表示名の更新に失敗しました: $e')),
+                  );
+                }
+              }
+
               if (context.mounted) Navigator.of(ctx).pop();
             },
             child: const Text('保存'),

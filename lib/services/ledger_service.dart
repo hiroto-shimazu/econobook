@@ -26,6 +26,7 @@ class LedgerService {
     String? requestId,
     String? taskId,
     String? splitGroupId,
+    String? entryType,
   }) async {
     if (amount <= 0) {
       throw ArgumentError.value(amount, 'amount', 'Must be greater than zero');
@@ -114,11 +115,13 @@ class LedgerService {
         });
       }
 
-      final entryType =
-          isCentralBankPayer || isCentralBankReceiver ? 'central_bank' : 'transfer';
+      final resolvedType = entryType ??
+          (isCentralBankPayer || isCentralBankReceiver
+              ? 'central_bank'
+              : 'transfer');
       tx.set(ledgerRef, {
         'cid': communityId,
-        'type': entryType,
+        'type': resolvedType,
         'fromUid': fromUid,
         'toUid': toUid,
         'amount': amount,

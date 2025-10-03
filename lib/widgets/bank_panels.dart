@@ -40,7 +40,10 @@ class BankSettingRequestsPanel extends StatelessWidget {
         if (snapshot.hasError) {
           return Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('設定リクエストの取得に失敗しました: ${snapshot.error}'),
+            child: SelectableText(
+              '設定リクエストの取得に失敗しました: ${snapshot.error}',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
           );
         }
         final docs = snapshot.data?.docs ?? [];
@@ -114,9 +117,9 @@ class _BankSettingRequestTileState extends State<_BankSettingRequestTile> {
       future: FirebaseFirestore.instance.doc('users/$requesterUid').get(),
       builder: (context, snapshot) {
         final userData = snapshot.data?.data();
-        final rawName = (userData?['displayName'] as String?)?.trim();
-        final displayName =
-            rawName != null && rawName.isNotEmpty ? rawName : requesterUid;
+    final rawName = (userData?['displayName'] as String?)?.trim();
+    final displayName =
+      rawName != null && rawName.isNotEmpty ? rawName : '匿名ユーザー';
 
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 6),
@@ -237,7 +240,10 @@ class CentralBankRequestsPanel extends StatelessWidget {
         if (snapshot.hasError) {
           return Padding(
             padding: const EdgeInsets.all(16),
-            child: Text('中央銀行宛の請求取得に失敗しました: ${snapshot.error}'),
+            child: SelectableText(
+              '中央銀行宛の請求取得に失敗しました: ${snapshot.error}',
+              style: const TextStyle(color: Colors.redAccent),
+            ),
           );
         }
         final docs = snapshot.data?.docs ?? [];

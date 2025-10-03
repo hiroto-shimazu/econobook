@@ -25,6 +25,7 @@ class RequestService {
     String visibility = 'community',
     DateTime? expireAt,
     required String createdBy,
+    String type = 'request',
   }) async {
     if (amount <= 0) {
       throw ArgumentError('amount must be positive');
@@ -59,6 +60,7 @@ class RequestService {
       createdAt: DateTime.now(),
       createdBy: createdBy,
       visibility: visibility,
+      type: type,
     );
     await docRef.set(request);
     return (await docRef.get()).data()!;
@@ -118,6 +120,7 @@ class RequestService {
           createdAt: DateTime.now(),
           createdBy: requesterUid,
           visibility: visibility,
+          type: 'split',
         );
         tx.set(docRef, request);
       }
@@ -177,6 +180,7 @@ class RequestService {
         idempotencyKey: 'request_$requestId',
         visibility: request.visibility,
         requestId: requestId,
+        entryType: request.type,
       );
     } catch (e) {
       await requestRef.update({

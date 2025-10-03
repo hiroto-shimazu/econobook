@@ -242,8 +242,8 @@ class _JoinRequestTile extends StatelessWidget {
           future:
               FirebaseFirestore.instance.doc('users/$userId').get(),
           builder: (context, snapshot) {
-            final name = (snapshot.data?.data()?['displayName'] as String?) ??
-                userId;
+            final rawName = (snapshot.data?.data()?['displayName'] as String?)?.trim();
+            final name = (rawName != null && rawName.isNotEmpty) ? rawName : '匿名ユーザー';
             final trimmedName = name.trim();
             final initial = trimmedName.isEmpty ? '?' : trimmedName[0];
             return Column(
@@ -268,13 +268,6 @@ class _JoinRequestTile extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          Text(
-                            'ユーザーID: $userId',
-                            style: const TextStyle(
-                              color: Color(0xFF64748B),
-                              fontSize: 12,
-                            ),
-                          ),
                         ],
                       ),
                     ),

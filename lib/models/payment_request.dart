@@ -13,6 +13,7 @@ class PaymentRequest {
     required this.createdAt,
     required this.createdBy,
     required this.visibility,
+    required this.type,
   });
 
   final String id;
@@ -26,6 +27,7 @@ class PaymentRequest {
   final DateTime? createdAt;
   final String createdBy;
   final String visibility;
+  final String type; // request | invoice | redeem | loan | other categorisations
 
   factory PaymentRequest.fromSnapshot(
       DocumentSnapshot<Map<String, dynamic>> snap) {
@@ -47,6 +49,7 @@ class PaymentRequest {
       createdAt: _toDate(data['createdAt']),
       createdBy: (data['createdBy'] as String?) ?? '',
       visibility: (data['visibility'] as String?) ?? 'community',
+      type: (data['type'] as String?) ?? 'request',
     );
   }
 
@@ -62,6 +65,7 @@ class PaymentRequest {
       'createdAt': createdAt == null ? null : Timestamp.fromDate(createdAt!),
       'createdBy': createdBy,
       'visibility': visibility,
+      'type': type,
     };
   }
 }

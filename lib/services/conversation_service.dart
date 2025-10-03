@@ -77,78 +77,95 @@ class ConversationService {
     final clock = now ?? DateTime.now();
     final startOfMonth = DateTime(clock.year, clock.month, 1);
     final timestamp = Timestamp.fromDate(startOfMonth);
+    try {
+      final entries = await Future.wait([
+        _refs
+            .ledgerEntries(communityId)
+            .where('fromUid', isEqualTo: currentUid)
+            .where('toUid', isEqualTo: partnerUid)
+            .where('createdAt', isGreaterThanOrEqualTo: timestamp)
+            .get(),
+        _refs
+            .ledgerEntries(communityId)
+            .where('fromUid', isEqualTo: partnerUid)
+            .where('toUid', isEqualTo: currentUid)
+            .where('createdAt', isGreaterThanOrEqualTo: timestamp)
+            .get(),
+      ]);
 
-    final entries = await Future.wait([
-      _refs
-          .ledgerEntries(communityId)
-          .where('fromUid', isEqualTo: currentUid)
-          .where('toUid', isEqualTo: partnerUid)
-          .where('createdAt', isGreaterThanOrEqualTo: timestamp)
-          .get(),
-      _refs
-          .ledgerEntries(communityId)
-          .where('fromUid', isEqualTo: partnerUid)
-          .where('toUid', isEqualTo: currentUid)
-          .where('createdAt', isGreaterThanOrEqualTo: timestamp)
-          .get(),
-    ]);
+      num outgoing = 0;
+      num incoming = 0;
+      for (final snap in entries[0].docs) {
+        final amount = (snap.data().amount);
+        outgoing += amount;
+      }
+      for (final snap in entries[1].docs) {
+        final amount = (snap.data().amount);
+        incoming += amount;
+      }
 
-    num outgoing = 0;
-    num incoming = 0;
-    for (final snap in entries[0].docs) {
-      final amount = (snap.data().amount);
-      outgoing += amount;
+      final pendingRequests = await Future.wait([
+        _refs
+            .paymentRequests(communityId)
+            .where('status', isEqualTo: 'pending')
+            .where('fromUid', isEqualTo: currentUid)
+            .where('toUid', isEqualTo: partnerUid)
+            .get(),
+        _refs
+            .paymentRequests(communityId)
+            .where('status', isEqualTo: 'pending')
+            .where('fromUid', isEqualTo: partnerUid)
+            .where('toUid', isEqualTo: currentUid)
+            .get(),
+      ]);
+
+      final pendingCount =
+          pendingRequests.fold<int>(0, (sum, snap) => sum + snap.docs.length);
+
+      final pendingTasks = await Future.wait([
+        _refs
+            .tasks(communityId)
+            .where('createdBy', isEqualTo: currentUid)
+            .where('assigneeUid', isEqualTo: partnerUid)
+            .where('status',
+                whereIn: const ['open', 'taken', 'submitted']).get(),
+        _refs
+            .tasks(communityId)
+            .where('createdBy', isEqualTo: partnerUid)
+            .where('assigneeUid', isEqualTo: currentUid)
+            .where('status',
+                whereIn: const ['open', 'taken', 'submitted']).get(),
+      ]);
+
+      final pendingTaskCount =
+          pendingTasks.fold<int>(0, (sum, snap) => sum + snap.docs.length);
+
+      final periodLabel = '${clock.year}年${clock.month}月';
+      return ConversationSummary(
+        incoming: incoming,
+        outgoing: outgoing,
+        currencyCode: currencyCode,
+        pendingRequestCount: pendingCount,
+        pendingTaskCount: pendingTaskCount,
+        periodLabel: periodLabel,
+      );
+    } on FirebaseException catch (e) {
+      // Permission denied: do not fail the whole chat screen. Return an
+      // empty/zeroed summary so user can continue chatting while indicating
+      // that summary couldn't be loaded.
+      if (e.code == 'permission-denied') {
+        final periodLabel = '${clock.year}年${clock.month}月';
+        return ConversationSummary(
+          incoming: 0,
+          outgoing: 0,
+          currencyCode: currencyCode,
+          pendingRequestCount: 0,
+          pendingTaskCount: 0,
+          periodLabel: periodLabel,
+        );
+      }
+      rethrow;
     }
-    for (final snap in entries[1].docs) {
-      final amount = (snap.data().amount);
-      incoming += amount;
-    }
-
-    final pendingRequests = await Future.wait([
-      _refs
-          .paymentRequests(communityId)
-          .where('status', isEqualTo: 'pending')
-          .where('fromUid', isEqualTo: currentUid)
-          .where('toUid', isEqualTo: partnerUid)
-          .get(),
-      _refs
-          .paymentRequests(communityId)
-          .where('status', isEqualTo: 'pending')
-          .where('fromUid', isEqualTo: partnerUid)
-          .where('toUid', isEqualTo: currentUid)
-          .get(),
-    ]);
-
-    final pendingCount =
-        pendingRequests.fold<int>(0, (sum, snap) => sum + snap.docs.length);
-
-    final pendingTasks = await Future.wait([
-      _refs
-          .tasks(communityId)
-          .where('createdBy', isEqualTo: currentUid)
-          .where('assigneeUid', isEqualTo: partnerUid)
-          .where('status', whereIn: const ['open', 'taken', 'submitted'])
-          .get(),
-      _refs
-          .tasks(communityId)
-          .where('createdBy', isEqualTo: partnerUid)
-          .where('assigneeUid', isEqualTo: currentUid)
-          .where('status', whereIn: const ['open', 'taken', 'submitted'])
-          .get(),
-    ]);
-
-    final pendingTaskCount =
-        pendingTasks.fold<int>(0, (sum, snap) => sum + snap.docs.length);
-
-    final periodLabel = '${clock.year}年${clock.month}月';
-    return ConversationSummary(
-      incoming: incoming,
-      outgoing: outgoing,
-      currencyCode: currencyCode,
-      pendingRequestCount: pendingCount,
-      pendingTaskCount: pendingTaskCount,
-      periodLabel: periodLabel,
-    );
   }
 
   Future<void> sendText({

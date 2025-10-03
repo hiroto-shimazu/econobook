@@ -400,6 +400,55 @@ class CommunityService {
         // 付随データの削除に失敗しても、コミュニティ脱退自体は成功とする。
       }
     }
+    // If community still exists and now has exactly one member, ensure that
+    // remaining member is set as owner to preserve the invariant that a
+    // single-member community always has an owner.
+    if (!shouldDeleteCommunity) {
+      try {
+        await ensureSingleMemberIsOwner(communityId);
+      } catch (_) {
+        // best-effort: ignore failures here
+      }
+    }
+  }
+
+  /// Ensure that when a community has exactly one membership, that member
+  /// is promoted to owner. This is a best-effort transaction that updates the
+  /// community.ownerUid, admins list, and the membership.role.
+  Future<void> ensureSingleMemberIsOwner(String communityId) async {
+    final firestore = refs.raw;
+    await firestore.runTransaction((tx) async {
+      final communityRef = refs.communityDoc(communityId);
+      final communitySnap = await tx.get(communityRef);
+      final community = communitySnap.data();
+      if (community == null) return;
+      if (community.membersCount != 1) return;
+
+      final membersQuery = await firestore
+          .collection('memberships')
+          .where('cid', isEqualTo: communityId)
+          .get();
+      if (membersQuery.docs.length != 1) return;
+      final doc = membersQuery.docs.first;
+      final data = doc.data();
+      final uid = (data['uid'] as String?) ?? (data['userId'] as String?) ?? '';
+      if (uid.isEmpty) return;
+
+      final role = (data['role'] as String?) ?? 'member';
+      if (role == 'owner' && community.ownerUid == uid) return;
+
+      // Promote the remaining member to owner and ensure admin membership.
+      tx.update(communityRef, {
+        'ownerUid': uid,
+        'admins': FieldValue.arrayUnion([uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      tx.update(doc.reference, {
+        'role': 'owner',
+        'pending': false,
+        'canManageBank': true,
+      });
+    });
   }
 
   Future<void> submitBankSettingRequest({

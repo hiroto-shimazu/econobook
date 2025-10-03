@@ -198,7 +198,7 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _HomeHeader(
-                      userName: widget.user.displayName ?? 'メンバー',
+                      userName: FirebaseAuth.instance.currentUser?.displayName ?? widget.user.displayName ?? 'メンバー',
                       role: role,
                       communitySymbol: communitySymbol,
                       inviteCode: inviteCode,
