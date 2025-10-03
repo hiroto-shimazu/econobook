@@ -1,6 +1,69 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} { allow read, write: if true; }
+    // サインイン確認ヘルパー
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // membership ドキュメントの存在を確認するヘルパー
+    // membership ドキュメントの id は `${cid}_${uid}` の形式を想定
+    function membershipId(cid, uid) {
+      return cid + '_' + uid;
+    }
+
+    function isCommunityMember(cid) {
+      return isSignedIn() && exists(/databases/$(database)/documents/memberships/$(membershipId(cid, request.auth.uid)));
+    }
+
+    // community_chats: スレッド／メッセージの読み取りはコミュニティメンバーに限定
+    match /community_chats/{cid}/threads/{threadId}/messages/{messageId} {
+      allow read: if isCommunityMember(cid);
+      // メッセージ投稿はサインインかつコミュニティメンバーのみ許可
+      allow create: if isCommunityMember(cid);
+      // 更新・削除はアプリ側で制御するためここでは禁止（必要に応じて変更）
+      allow update, delete: if false;
+    }
+
+    // スレッド本体（例: スレッドのメタ情報）
+    match /community_chats/{cid}/threads/{threadId} {
+      allow read: if isCommunityMember(cid);
+      allow create: if isCommunityMember(cid);
+      allow update, delete: if false;
+    }
+
+    // users: サインインしていれば読み取り可。書き込みは本人のみ
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // memberships: 開発時はサインインで読み書き可。運用ではより厳格にすること
+    match /memberships/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // ledger / requests: 読み取りはコミュニティメンバーのみ
+    match /ledger/{cid}/entries/{entryId} {
+      allow read: if isCommunityMember(cid);
+      allow write: if false;
+    }
+
+    match /requests/{cid}/items/{reqId} {
+      allow read: if isCommunityMember(cid);
+      allow write: if false;
+    }
+
+    // tasks（例）: コミュニティメンバーに限定
+    match /tasks/{cid}/tasks/{taskId} {
+      allow read: if isCommunityMember(cid);
+      allow write: if isCommunityMember(cid);
+    }
+
+    // デフォルトでは明示的に拒否（必要に応じて各コレクションを追加）
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
