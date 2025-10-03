@@ -2,7 +2,7 @@
 
 概要
 - 目的: チャットのメッセージ/スレッド閲覧に関して、該当コミュニティのメンバーのみ読み取りを許可するセキュリティ強化。
-- 変更箇所: `firestore.rules` を更新し、`community_chats/{cid}/threads/{threadId}` と `community_chats/{cid}/threads/{threadId}/messages/{messageId}` の `read`/`create` を、`memberships/{cid}_{uid}` ドキュメントが存在する場合にのみ許可するようにしました。加えて `ledger`, `requests`, `tasks` の読み取りをコミュニティメンバーに限定しています。
+- 変更箇所: `firestore.rules` を更新し、`community_chats/{cid}/threads/{threadId}` と `community_chats/{cid}/threads/{threadId}/messages/{messageId}` の `read`/`create` を `memberships/{cid}_{uid}` ドキュメントが存在する場合（=コミュニティメンバー）に許可します。また、既存スレッドの参加者は membership が未発行でもレスキュー目的で読み取り・投稿できます。`ledger`, `requests`, `tasks` もコミュニティメンバーに限定します。
 
 デプロイ手順
 1. Firebase CLI にログイン
@@ -15,7 +15,7 @@
 
 動作確認手順
 - 管理者は Firestore コンソールで対象ユーザーの `memberships/{cid}_{uid}` ドキュメントが存在することを確認してください（例: `A2DEMtNcsN63pKVLH8zI_4DuTMUT0hNPr3SBfxyyHQocXBJu1`）。
-- そのユーザーでログインして、チャット UI（`community_chats/{cid}/threads` の一覧と `.../messages`）が読み取れるかテストしてください。
+- そのユーザーでログインして、チャット UI（`community_chats/{cid}/threads` の一覧と `.../messages`）が読み取れるかテストしてください。既存スレッドの参加者であれば membership が未発行でもアクセスできるはずです。
 - ルールのシミュレータを使って、未認証ユーザーや別コミュニティの UID によるアクセスをテストしてください。
 
 リスクとロールバック
