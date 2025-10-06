@@ -39,8 +39,17 @@ class ConversationService {
   late final RequestService _requestService;
   late final TaskService _taskService;
   final FirestoreRefs _refs;
+  final Set<String> _membershipEnsuredKeys = <String>{};
+  final Map<String, Future<void>> _membershipEnsuring = {};
 
   ChatService get chat => _chatService;
+
+  Future<void> ensureMembership({
+    required String communityId,
+    required String userId,
+  }) {
+    return _ensureMembershipExists(communityId: communityId, userId: userId);
+  }
 
   Stream<List<ChatMessage>> messageStream({
     required String communityId,
@@ -173,7 +182,8 @@ class ConversationService {
     required String senderUid,
     required String receiverUid,
     required String text,
-  }) {
+  }) async {
+    await ensureMembership(communityId: communityId, userId: senderUid);
     return _chatService.sendMessage(
       communityId: communityId,
       senderUid: senderUid,
@@ -191,6 +201,7 @@ class ConversationService {
     String? memo,
     bool enforceSufficientFunds = false,
   }) async {
+    await ensureMembership(communityId: communityId, userId: senderUid);
     final entry = await _ledgerService.recordTransfer(
       communityId: communityId,
       fromUid: senderUid,
@@ -225,6 +236,10 @@ class ConversationService {
     required String currencyCode,
     String? memo,
   }) async {
+    await ensureMembership(
+      communityId: communityId,
+      userId: requesterUid,
+    );
     final request = await _requestService.createRequest(
       communityId: communityId,
       fromUid: requesterUid,
@@ -258,6 +273,10 @@ class ConversationService {
     required String currencyCode,
     String? memo,
   }) async {
+    await ensureMembership(
+      communityId: communityId,
+      userId: requesterUid,
+    );
     final share = totalAmount / 2;
     final request = await _requestService.createRequest(
       communityId: communityId,
@@ -294,6 +313,10 @@ class ConversationService {
     required String currencyCode,
     String? description,
   }) async {
+    await ensureMembership(
+      communityId: communityId,
+      userId: creatorUid,
+    );
     final task = await _taskService.createTask(
       communityId: communityId,
       title: title,
@@ -317,5 +340,90 @@ class ConversationService {
         'status': task.status,
       },
     );
+  }
+
+  Future<void> _ensureMembershipExists({
+    required String communityId,
+    required String userId,
+  }) async {
+    final key = '$communityId::$userId';
+    if (_membershipEnsuredKeys.contains(key)) {
+      return;
+    }
+
+    final inflight = _membershipEnsuring[key];
+    if (inflight != null) {
+      await inflight;
+      return;
+    }
+
+    final future = _ensureMembershipExistsImpl(
+      communityId: communityId,
+      userId: userId,
+    );
+    _membershipEnsuring[key] = future;
+    try {
+      await future;
+      _membershipEnsuredKeys.add(key);
+    } finally {
+      _membershipEnsuring.remove(key);
+    }
+  }
+
+  Future<void> _ensureMembershipExistsImpl({
+    required String communityId,
+    required String userId,
+  }) async {
+    final docId = FirestoreRefs.membershipId(communityId, userId);
+    final docRef = _firestore.collection('memberships').doc(docId);
+
+    final existing = await docRef.get();
+    if (existing.exists) {
+      return;
+    }
+
+    bool balanceVisible = false;
+    try {
+      final communitySnap =
+          await _firestore.collection('communities').doc(communityId).get();
+      if (communitySnap.exists) {
+        final data = communitySnap.data();
+        final visibility = data?['visibility'];
+        if (visibility is Map) {
+          final mode = visibility['balanceMode'];
+          balanceVisible = mode == 'everyone';
+        }
+      }
+    } catch (_) {
+      // default to false if we cannot determine visibility mode
+    }
+
+    try {
+      await docRef.set({
+        'cid': communityId,
+        'uid': userId,
+        'role': 'member',
+        'balance': 0,
+        'pending': false,
+        'joinedAt': FieldValue.serverTimestamp(),
+        'monthlySummary': const <String, dynamic>{},
+        'canManageBank': false,
+        'balanceVisible': balanceVisible,
+        'autoProvisioned': true,
+        'autoProvisionedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        final message =
+            'permission-denied while ensuring membership ${docRef.path} for user=$userId community=$communityId; originalMessage=${e.message ?? ''}';
+        throw FirebaseException(
+          plugin: e.plugin,
+          code: e.code,
+          message: message,
+          stackTrace: e.stackTrace,
+        );
+      }
+      rethrow;
+    }
   }
 }

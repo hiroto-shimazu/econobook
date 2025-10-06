@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/firestore_index_link_copy.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -212,7 +213,10 @@ class _NewsScreenState extends State<NewsScreen> {
       return _communityMetaCache[communityId]!;
     }
     final snap =
-        await FirebaseFirestore.instance.doc('communities/$communityId').get();
+        await withIndexLinkCopy(
+          context,
+          () => FirebaseFirestore.instance.doc('communities/$communityId').get(),
+        );
     final data = snap.data();
     final currency = (data?['currency'] as Map<String, dynamic>?) ??
         const <String, dynamic>{};
@@ -230,7 +234,10 @@ class _NewsScreenState extends State<NewsScreen> {
     if (_userNameCache.containsKey(uid)) {
       return _userNameCache[uid]!;
     }
-    final snap = await FirebaseFirestore.instance.doc('users/$uid').get();
+    final snap = await withIndexLinkCopy(
+      context,
+      () => FirebaseFirestore.instance.doc('users/$uid').get(),
+    );
     final name = (snap.data()?['displayName'] as String?) ?? uid;
     _userNameCache[uid] = name;
     return name;

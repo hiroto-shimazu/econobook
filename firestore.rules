@@ -27,6 +27,19 @@ service cloud.firestore {
         threadData(cid, threadId).participants.hasAny([request.auth.uid]);
     }
 
+    function threadParticipantUpdateAllowed(cid, threadId) {
+      let existing = threadExists(cid, threadId) ? threadData(cid, threadId).participants : [];
+  let incoming = request.resource.data.participants;
+  let existingList = existing == null ? [] : existing;
+  let incomingList = incoming == null ? existingList : incoming;
+      return incomingList == existingList || (
+        incomingList.size() <= 2 &&
+        incomingList.size() >= existingList.size() &&
+        incomingList.hasAll(existingList) &&
+        incomingList.hasAny([request.auth.uid])
+      );
+    }
+
     // contacts（既存の公開フォーム）
     match /contacts/{doc} {
       allow create: if
@@ -100,7 +113,28 @@ service cloud.firestore {
       match /threads/{threadId} {
         allow read: if isCommunityMember(cid) || isThreadParticipant(cid, threadId);
         allow create: if isCommunityMember(cid);
-        allow update, delete: if false;
+        allow update: if (isThreadParticipant(cid, threadId) || isCommunityMember(cid))
+          && request.resource.data.keys().hasOnly([
+            'participants',
+            'createdAt',
+            'updatedAt',
+            'lastMessage',
+            'lastSenderUid',
+            'lastMessageType',
+            'lastMessageMetadata',
+            'unreadCounts',
+            'readAt'
+          ])
+          && (
+            request.resource.data.participants == resource.data.participants
+            || threadParticipantUpdateAllowed(cid, threadId)
+          )
+          && request.resource.data.createdAt == resource.data.createdAt
+          && (!request.resource.data.keys().hasAny(['unreadCounts'])
+            || request.resource.data.unreadCounts.keys().hasOnly(request.resource.data.participants))
+          && (!request.resource.data.keys().hasAny(['readAt'])
+            || request.resource.data.readAt.keys().hasOnly(request.resource.data.participants));
+        allow delete: if false;
 
         match /messages/{messageId} {
           allow read: if isCommunityMember(cid) || isThreadParticipant(cid, threadId);

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../services/community_service.dart';
+import '../utils/firestore_index_link_copy.dart';
 
 class CommunityJoinRequestsScreen extends StatefulWidget {
   const CommunityJoinRequestsScreen({
@@ -240,7 +241,10 @@ class _JoinRequestTile extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           future:
-              FirebaseFirestore.instance.doc('users/$userId').get(),
+              withIndexLinkCopy(
+                context,
+                () => FirebaseFirestore.instance.doc('users/$userId').get(),
+              ),
           builder: (context, snapshot) {
             final rawName = (snapshot.data?.data()?['displayName'] as String?)?.trim();
             final name = (rawName != null && rawName.isNotEmpty) ? rawName : '匿名ユーザー';

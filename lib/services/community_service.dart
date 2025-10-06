@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/firestore_index_link_copy.dart';
 
 import '../constants/community.dart';
 import '../models/community.dart';
@@ -138,7 +139,7 @@ class CommunityService {
         'Either inviteCode or communityId is required');
 
     final query = normalizedInvite == null
-        ? refs.communityDoc(normalizedCommunityId!).get()
+  ? await withIndexLinkCopyForService(() => refs.communityDoc(normalizedCommunityId!).get())
         : refs
             .communities()
             .where('inviteCode', isEqualTo: normalizedInvite)
@@ -165,7 +166,7 @@ class CommunityService {
     final memberRef = refs.raw
         .collection('memberships')
         .doc(FirestoreRefs.membershipId(community.id, userId));
-    final existing = await memberRef.get();
+  final existing = await withIndexLinkCopyForService(() => memberRef.get());
     if (existing.exists) {
       // Already joined. respect pending flag.
       return true;
@@ -267,7 +268,7 @@ class CommunityService {
         .doc(communityId)
         .collection('items')
         .doc(requesterUid);
-    final data = await requestRef.get();
+  final data = await withIndexLinkCopyForService(() => requestRef.get());
     if (!data.exists) return;
     await requestRef.delete();
   }
@@ -278,7 +279,7 @@ class CommunityService {
     required bool enabled,
     required String updatedBy,
   }) async {
-    final updaterSnap = await refs.membershipDoc(communityId, updatedBy).get();
+  final updaterSnap = await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, updatedBy).get());
     final updater = updaterSnap.data();
     if (updater == null || updater.role != 'owner') {
       throw StateError('権限を変更できるのはコミュニティ作成者のみです');
@@ -288,7 +289,7 @@ class CommunityService {
     }
 
     final targetRef = refs.membershipDoc(communityId, targetUid);
-    final targetSnap = await targetRef.get();
+  final targetSnap = await withIndexLinkCopyForService(() => targetRef.get());
     if (!targetSnap.exists) {
       throw StateError('メンバーが見つかりません');
     }
@@ -311,7 +312,7 @@ class CommunityService {
 
     await refs.raw.runTransaction((tx) async {
       final communityRef = refs.communityDoc(communityId);
-      final communitySnap = await tx.get(communityRef);
+  final communitySnap = await tx.get(communityRef);
       final community = communitySnap.data();
       if (community == null) {
         throw StateError('コミュニティが見つかりません');
@@ -321,14 +322,14 @@ class CommunityService {
       }
 
       final currentLeaderRef = refs.membershipDoc(communityId, currentLeaderUid);
-      final currentLeaderSnap = await tx.get(currentLeaderRef);
+  final currentLeaderSnap = await tx.get(currentLeaderRef);
       final currentMembership = currentLeaderSnap.data();
       if (currentMembership == null || currentMembership.role != 'owner') {
         throw StateError('現在のメンバー情報を確認できませんでした');
       }
 
       final newLeaderRef = refs.membershipDoc(communityId, newLeaderUid);
-      final newLeaderSnap = await tx.get(newLeaderRef);
+  final newLeaderSnap = await tx.get(newLeaderRef);
       final newMembership = newLeaderSnap.data();
       if (newMembership == null || newMembership.pending) {
         throw StateError('リーダーに設定できるメンバーが見つかりません');
@@ -358,13 +359,13 @@ class CommunityService {
     var shouldDeleteCommunity = false;
 
     await refs.raw.runTransaction((tx) async {
-      final membershipSnap = await tx.get(membershipRef);
+  final membershipSnap = await tx.get(membershipRef);
       final membership = membershipSnap.data();
       if (membership == null) {
         throw StateError('コミュニティメンバーではありません');
       }
 
-      final communitySnap = await tx.get(communityRef);
+  final communitySnap = await tx.get(communityRef);
       final community = communitySnap.data();
       if (community == null) {
         throw StateError('コミュニティが見つかりません');
@@ -419,7 +420,7 @@ class CommunityService {
     final firestore = refs.raw;
     await firestore.runTransaction((tx) async {
       final communityRef = refs.communityDoc(communityId);
-      final communitySnap = await tx.get(communityRef);
+  final communitySnap = await tx.get(communityRef);
       final community = communitySnap.data();
       if (community == null) return;
       if (community.membersCount != 1) return;
@@ -457,7 +458,7 @@ class CommunityService {
     String? message,
   }) async {
     final membershipSnap =
-        await refs.membershipDoc(communityId, requesterUid).get();
+  await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, requesterUid).get());
     if (!membershipSnap.exists) {
       throw StateError('コミュニティメンバーのみリクエストできます');
     }
@@ -484,7 +485,7 @@ class CommunityService {
     required bool approved,
   }) async {
     final resolverSnap =
-        await refs.membershipDoc(communityId, resolvedBy).get();
+  await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, resolvedBy).get());
     final resolver = resolverSnap.data();
     if (resolver == null ||
         (resolver.role != 'owner' && resolver.canManageBank != true)) {
@@ -492,7 +493,7 @@ class CommunityService {
     }
 
     final requestRef = refs.bankSettingRequests(communityId).doc(requestId);
-    final requestSnap = await requestRef.get();
+  final requestSnap = await withIndexLinkCopyForService(() => requestRef.get());
     if (!requestSnap.exists) {
       throw StateError('リクエストが見つかりません');
     }
@@ -569,7 +570,7 @@ class CommunityService {
   }) async {
     final communityRef = refs.communityDoc(communityId);
     await refs.raw.runTransaction((tx) async {
-      final snap = await tx.get(communityRef);
+  final snap = await tx.get(communityRef);
       final community = snap.data();
       if (community == null) {
         throw StateError('コミュニティが見つかりません');
@@ -583,7 +584,7 @@ class CommunityService {
     final membershipQuery = await refs.raw
         .collection('memberships')
         .where('cid', isEqualTo: communityId)
-        .get();
+  .get();
     for (final doc in membershipQuery.docs) {
       await doc.reference.delete();
     }
@@ -597,7 +598,7 @@ class CommunityService {
         .doc(communityId)
         .collection('items')
         .doc(userId);
-    final existing = await joinRef.get();
+  final existing = await withIndexLinkCopyForService(() => joinRef.get());
     if (existing.exists) {
       return;
     }
@@ -642,12 +643,12 @@ class CommunityService {
   }
 
   Future<Membership?> fetchMembership(String communityId, String userId) async {
-    final snap = await refs.membershipDoc(communityId, userId).get();
+  final snap = await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, userId).get());
     return snap.data();
   }
 
   Future<void> ensureMemberExists(String communityId, String userId) async {
-    final doc = await refs.membershipDoc(communityId, userId).get();
+  final doc = await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, userId).get());
     if (!doc.exists) {
       throw StateError('User $userId is not part of community $communityId');
     }
@@ -672,7 +673,7 @@ class CommunityService {
     final members = await refs.raw
         .collection('memberships')
         .where('cid', isEqualTo: communityId)
-        .get();
+  .get();
     final batch = refs.raw.batch();
     for (final doc in members.docs) {
       final visible = switch (visibility.balanceMode) {
@@ -693,7 +694,7 @@ class CommunityService {
   }) async {
     final communityDoc = refs.communityDoc(communityId);
     await refs.raw.runTransaction((tx) async {
-      final communitySnap = await tx.get(communityDoc);
+  final communitySnap = await tx.get(communityDoc);
       final community = communitySnap.data();
       final visibility = community?.visibility ??
           const CommunityVisibility(balanceMode: 'private');
@@ -738,7 +739,7 @@ class CommunityService {
     required String communityId,
     required num delta,
   }) async {
-    final doc = await refs.communityDoc(communityId).get();
+  final doc = await withIndexLinkCopyForService(() => refs.communityDoc(communityId).get());
     final data = doc.data();
     final current = data?.treasury.balance ?? 0;
     final next = current + delta;
@@ -771,7 +772,7 @@ class CommunityService {
 
     await refs.raw.runTransaction((tx) async {
       final communityDoc = refs.communityDoc(communityId);
-      final snap = await tx.get(communityDoc);
+  final snap = await tx.get(communityDoc);
       final community = snap.data();
       final balance = community?.treasury.balance ?? 0;
       if (balance < amount) {

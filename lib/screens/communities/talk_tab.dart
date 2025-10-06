@@ -357,17 +357,19 @@ class _TalkTabState extends State<_TalkTab> {
           '';
       if (partnerUid.isEmpty) return null;
 
-      final communitySnap = await FirebaseFirestore.instance
-          .doc('communities/$communityId')
-          .get();
+      final communitySnap = await withIndexLinkCopy(
+        context,
+        () => FirebaseFirestore.instance.doc('communities/$communityId').get(),
+      );
       final communityData = communitySnap.data() ?? <String, dynamic>{};
       final communityName =
           (communityData['name'] as String?) ?? (communityData['id'] as String? ?? communityId);
       final communityCover = (communityData['coverUrl'] as String?)?.trim();
 
-      final memberSnap = await FirebaseFirestore.instance
-          .doc('users/$partnerUid')
-          .get();
+      final memberSnap = await withIndexLinkCopy(
+        context,
+        () => FirebaseFirestore.instance.doc('users/$partnerUid').get(),
+      );
       final memberData = memberSnap.data() ?? <String, dynamic>{};
       final displayName =
           (memberData['displayName'] as String?) ?? (memberData['name'] as String?) ?? 'メンバー';

@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../dev/dev_seed.dart';
 import '../dev/dev_users.dart';
@@ -14,6 +15,7 @@ import '../models/membership.dart';
 import '../models/payment_request.dart';
 import '../models/split_rounding_mode.dart';
 import '../services/chat_service.dart';
+import '../services/conversation_service.dart';
 import '../services/community_service.dart';
 import '../services/firestore_refs.dart';
 import '../services/ledger_service.dart';
@@ -22,6 +24,7 @@ import '../services/task_service.dart';
 import '../constants/community.dart';
 import 'community_join_requests_screen.dart';
 import 'member_chat_screen.dart';
+import '../utils/firestore_index_link_copy.dart';
 import 'transactions/transaction_flow_screen.dart';
 import 'wallet_screen.dart';
 
@@ -85,6 +88,7 @@ extension _CommunityDashboardTabLabel on _CommunityDashboardTab {
         return 'バンク';
     }
   }
+  
 
   IconData get icon {
     switch (this) {
@@ -101,6 +105,65 @@ extension _CommunityDashboardTabLabel on _CommunityDashboardTab {
       case _CommunityDashboardTab.bank:
         return Icons.account_balance_outlined;
     }
+  }
+}
+
+class _CopyableErrorBox extends StatelessWidget {
+  const _CopyableErrorBox({
+    required this.title,
+    required this.details,
+    this.onCopied,
+  });
+
+  final String title;
+  final String details;
+  final VoidCallback? onCopied;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        border: Border.all(color: const Color(0xFFFFD7A3)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.error_outline, size: 18, color: Color(0xFFB45309)),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF7C2D12),
+                ),
+              ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'コピー',
+                icon: const Icon(Icons.copy_all_rounded),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: details));
+                  onCopied?.call();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Web(CanvasKit)で選択できるように SelectableText を使う
+          SelectableText(
+            details,
+            style: const TextStyle(fontSize: 13, color: Color(0xFF7C2D12)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -179,6 +242,7 @@ class _CommunityMemberSelectScreenState
   String _talkSearchQuery = '';
   _TalkFilterOption _talkFilter = _TalkFilterOption.all;
   final ChatService _chatService = ChatService();
+  final ConversationService _conversationService = ConversationService();
   final Set<String> _pinningThreads = <String>{};
   final Set<String> _markingReadThreads = <String>{};
   final RequestService _requestService = RequestService();
@@ -225,6 +289,9 @@ class _CommunityMemberSelectScreenState
     _talkSearchController.addListener(_handleTalkSearchChanged);
     _subscribeCommunity();
     _subscribeMembers();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureSelfMembership();
+    });
   }
 
   @override
@@ -536,8 +603,18 @@ class _CommunityMemberSelectScreenState
               return const Center(child: CircularProgressIndicator());
             }
             if (snapshot.hasError) {
-              return _TalkMessageCard(
-                message: 'トークを取得できませんでした: ${snapshot.error}',
+              final errText = 'トークを取得できませんでした: ${snapshot.error}';
+              // 画面だけでなくコンソールにも完全なテキストを出す（DevToolsからコピー可能）
+              debugPrint('THREADS_STREAM_ERROR: $errText');
+              // キーボードがない環境でもコピーしやすいUIを出す
+              return _CopyableErrorBox(
+                title: 'トークを取得できませんでした',
+                details: errText,
+                onCopied: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('エラー内容をコピーしました')),
+                  );
+                },
               );
             }
             final docs = snapshot.data?.docs ?? [];
@@ -677,8 +754,16 @@ class _CommunityMemberSelectScreenState
           return const Center(child: CircularProgressIndicator());
         }
         if (pendingSnapshot.hasError) {
-          return _WalletMessageCard(
-            message: '承認リクエストを取得できませんでした: ${pendingSnapshot.error}',
+          final errText = '承認リクエストを取得できませんでした: ${pendingSnapshot.error}';
+          debugPrint('PENDING_REQUESTS_STREAM_ERROR: $errText');
+          return _CopyableErrorBox(
+            title: '承認リクエストを取得できませんでした',
+            details: errText,
+            onCopied: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('エラー内容をコピーしました')),
+              );
+            },
           );
         }
 
@@ -707,11 +792,19 @@ class _CommunityMemberSelectScreenState
               return const Center(child: CircularProgressIndicator());
             }
             if (ledgerSnapshot.hasError) {
-              return _WalletMessageCard(
-                message: '取引履歴を取得できませんでした: ${ledgerSnapshot.error}',
+              final errText = '取引履歴を取得できませんでした: ${ledgerSnapshot.error}';
+              debugPrint('LEDGER_STREAM_ERROR: $errText');
+              return _CopyableErrorBox(
+                title: '取引履歴を取得できませんでした',
+                details: errText,
+                onCopied: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('エラー内容をコピーしました')),
+                  );
+                },
               );
             }
-
+            
             final ledgerDocs = ledgerSnapshot.data?.docs ?? const [];
             final transactions = <_WalletTransaction>[];
             num monthlyInflow = 0;
@@ -814,6 +907,38 @@ class _CommunityMemberSelectScreenState
               ],
             );
           },
+        );
+      },
+    );
+  }
+
+  Future<void> _showCopyableErrorDialog(String title, String details) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(title),
+          content: SingleChildScrollView(
+            child: SelectableText(details),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: details));
+                if (!mounted) return;
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('エラー内容をコピーしました')),
+                );
+              },
+              child: const Text('コピー'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
         );
       },
     );
@@ -1053,6 +1178,17 @@ class _CommunityMemberSelectScreenState
     );
   }
 
+  Future<void> _ensureSelfMembership() async {
+    try {
+      await _conversationService.ensureMembership(
+        communityId: widget.communityId,
+        userId: widget.currentUserUid,
+      );
+    } catch (e) {
+      debugPrint('Failed to ensure membership for ${widget.currentUserUid}: $e');
+    }
+  }
+
   void _handleTalkSearchChanged() {
     final query = _talkSearchController.text.trim();
     if (query == _talkSearchQuery) {
@@ -1132,8 +1268,10 @@ class _CommunityMemberSelectScreenState
       String memberRole = member?.membership.role ?? 'member';
 
       if (member == null) {
-        final userSnap =
-            await FirebaseFirestore.instance.doc('users/$partnerUid').get();
+        final userSnap = await withIndexLinkCopy(
+          context,
+          () => FirebaseFirestore.instance.doc('users/$partnerUid').get(),
+        );
         final userData = userSnap.data();
         if (userData != null) {
           final candidate = (userData['displayName'] as String?)?.trim();
@@ -1155,9 +1293,10 @@ class _CommunityMemberSelectScreenState
           }
         }
 
-        final membershipSnap = await FirebaseFirestore.instance
-            .doc('memberships/${FirestoreRefs.membershipId(widget.communityId, partnerUid)}')
-            .get();
+        final membershipSnap = await withIndexLinkCopy(
+          context,
+          () => FirebaseFirestore.instance.doc('memberships/${FirestoreRefs.membershipId(widget.communityId, partnerUid)}').get(),
+        );
         final membershipData = membershipSnap.data();
         if (membershipData != null) {
           final role = (membershipData['role'] as String?)?.trim();
@@ -1785,11 +1924,11 @@ class _CommunityMemberSelectScreenState
     try {
       for (final uid in _selectedUids) {
         if (uid == widget.currentUserUid) continue;
-        await _chatService.sendMessage(
+        await _conversationService.sendText(
           communityId: widget.communityId,
           senderUid: currentUser.uid,
           receiverUid: uid,
-          message: message,
+          text: message,
         );
       }
       if (!mounted) return;
@@ -1798,9 +1937,9 @@ class _CommunityMemberSelectScreenState
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('メッセージ送信に失敗しました: $e')),
-      );
+      final errText = 'メッセージの送信に失敗しました: $e';
+      debugPrint('SEND_MESSAGE_ERROR: $errText');
+      await _showCopyableErrorDialog('メッセージの送信に失敗しました', errText);
     } finally {
       if (mounted) {
         setState(() => _bulkActionInProgress = false);
@@ -1809,6 +1948,32 @@ class _CommunityMemberSelectScreenState
   }
 
   Future<String?> _showBulkMessageDialog() async {
+  Future<void> _showCopyableErrorDialog(String title, String details) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: _CopyableErrorBox(
+            title: title,
+            details: details,
+            onCopied: () {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                const SnackBar(content: Text('エラー内容をコピーしました')),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        );
+      },
+    );
+  }
     final controller = TextEditingController();
     try {
       return await showDialog<String>(
@@ -6764,28 +6929,31 @@ class _DashboardTabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeInOut,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: isActive ? _kMainBlue : Colors.transparent,
-              width: 2,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeInOut,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: isActive ? _kMainBlue : Colors.transparent,
+                width: 2,
+              ),
             ),
           ),
-        ),
-        child: Text(
-          tab.label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
-            color: isActive ? _kMainBlue : _kTextSub,
-            letterSpacing: 0.2,
+          child: Text(
+            tab.label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isActive ? FontWeight.w700 : FontWeight.w600,
+              color: isActive ? _kMainBlue : _kTextSub,
+              letterSpacing: 0.2,
+            ),
           ),
         ),
       ),
@@ -7643,7 +7811,10 @@ class _DevMenuSheetState extends State<_DevMenuSheet> {
     final refs = FirestoreRefs(fs);
     final membershipColl = refs.memberships();
 
-    final query = await membershipColl.where('cid', isEqualTo: communityId).get();
+    final query = await withIndexLinkCopy(
+      context,
+      () => membershipColl.where('cid', isEqualTo: communityId).get(),
+    );
     int scanned = 0;
     int deleted = 0;
     for (final doc in query.docs) {
@@ -7671,7 +7842,10 @@ class _DevMenuSheetState extends State<_DevMenuSheet> {
 
       if (uid.isEmpty) continue;
 
-      final userDoc = await refs.users().doc(uid).get().catchError((_) => null);
+      final userDoc = await withIndexLinkCopy(
+        context,
+        () => refs.users().doc(uid).get().catchError((_) => null),
+      );
       final exists = userDoc != null && userDoc.exists;
       if (!exists) {
         // delete membership doc

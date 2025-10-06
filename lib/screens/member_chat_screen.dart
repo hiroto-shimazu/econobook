@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/chat_message.dart';
+import '../utils/firestore_index_link_copy.dart';
 import '../models/community.dart';
 import '../models/conversation_summary.dart';
 import '../services/chat_service.dart';
@@ -111,6 +112,7 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
     _partnerDisplayName = widget.partnerDisplayName;
     _partnerPhotoUrl = widget.partnerPhotoUrl;
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureMembership();
       _loadCommunity();
       _loadPartnerProfile();
       _markAsRead();
@@ -126,10 +128,10 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
 
   Future<void> _loadCommunity() async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('communities')
-          .doc(widget.communityId)
-          .get();
+      final snap = await withIndexLinkCopy(
+        context,
+        () => FirebaseFirestore.instance.collection('communities').doc(widget.communityId).get(),
+      );
       if (!snap.exists) return;
       final community = Community.fromSnapshot(snap);
       if (!mounted) return;
@@ -144,9 +146,10 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
   Future<void> _loadPartnerProfile() async {
     try {
       if (widget.partnerUid.isEmpty) return;
-      final snap = await FirebaseFirestore.instance
-          .doc('users/${widget.partnerUid}')
-          .get();
+      final snap = await withIndexLinkCopy(
+        context,
+        () => FirebaseFirestore.instance.doc('users/${widget.partnerUid}').get(),
+      );
       if (!snap.exists) return;
       final data = snap.data();
       if (data == null) return;
@@ -176,6 +179,17 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
       });
     } catch (_) {
       // ignore profile load errors
+    }
+  }
+
+  Future<void> _ensureMembership() async {
+    try {
+      await _conversationService.ensureMembership(
+        communityId: widget.communityId,
+        userId: widget.currentUser.uid,
+      );
+    } catch (e) {
+      debugPrint('Failed to ensure membership for chat: $e');
     }
   }
 
@@ -248,8 +262,43 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
       _scrollToBottom();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('メッセージの送信に失敗しました: $e')),
+      final errText = 'メッセージの送信に失敗しました: $e';
+      final messenger = ScaffoldMessenger.of(context);
+      // Hide existing snackbars first
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          // keep visible until user explicitly closes
+          duration: const Duration(days: 365),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(12),
+          content: Row(
+            children: [
+              Expanded(
+                child: SelectableText(
+                  errText,
+                  style: const TextStyle(color: _kDangerRed),
+                ),
+              ),
+              IconButton(
+                tooltip: 'コピー',
+                icon: const Icon(Icons.copy, size: 20, color: Colors.white),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: errText));
+                  if (!mounted) return;
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('エラーをコピーしました'), duration: Duration(seconds: 1)),
+                  );
+                },
+              ),
+              IconButton(
+                tooltip: '閉じる',
+                icon: const Icon(Icons.close, size: 20, color: Colors.white),
+                onPressed: () => messenger.hideCurrentSnackBar(),
+              ),
+            ],
+          ),
+        ),
       );
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -635,6 +684,7 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
               child: _ErrorNotice(
                 title: 'メッセージの取得に失敗しました',
                 error: snapshot.error!,
+                stackTrace: snapshot.stackTrace,
                 guidance: _guidanceForError(snapshot.error!),
                 debugLines: kDebugMode
                     ? [
@@ -663,6 +713,7 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
                   child: _ErrorNotice(
                     title: 'スレッド情報の取得に失敗しました',
                     error: threadSnapshot.error!,
+                    stackTrace: threadSnapshot.stackTrace,
                     guidance: _guidanceForError(threadSnapshot.error!),
                     debugLines: kDebugMode
                         ? [
@@ -1834,12 +1885,14 @@ class _ErrorNotice extends StatelessWidget {
   const _ErrorNotice({
     required this.title,
     required this.error,
+    this.stackTrace,
     this.guidance = const [],
     this.debugLines = const [],
   });
 
   final String title;
   final Object error;
+  final StackTrace? stackTrace;
   final List<String> guidance;
   final List<String> debugLines;
 
@@ -1847,6 +1900,10 @@ class _ErrorNotice extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final message = _describeError(error);
+    final urls = _extractUrls(message);
+    if (kDebugMode) {
+      debugPrint('[ErrorNotice] $message');
+    }
     final baseStyle = theme.textTheme.bodyMedium?.copyWith(
           color: _kDangerRed,
           height: 1.4,
@@ -1955,22 +2012,68 @@ class _ErrorNotice extends StatelessWidget {
           ),
           Padding(
             padding: const EdgeInsets.only(left: 8),
-            child: IconButton(
-              tooltip: 'コピー',
-              icon: const Icon(Icons.copy_rounded, color: _kDangerRed),
-              onPressed: () async {
-                final messenger = ScaffoldMessenger.of(context);
-                final clipboardText = _buildClipboardText(
-                  title,
-                  message,
-                  guidance,
-                  debugLines,
-                );
-                await Clipboard.setData(ClipboardData(text: clipboardText));
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('エラー情報をコピーしました')),
-                );
-              },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: '詳細を表示',
+                  icon: const Icon(Icons.info_outline_rounded, color: _kDangerRed),
+                  onPressed: () {
+                    _showDetailsDialog(
+                      context,
+                      title,
+                      message,
+                      guidance,
+                      debugLines,
+                      urls,
+                      stackTrace,
+                    );
+                  },
+                ),
+                const SizedBox(height: 4),
+                if (urls.isNotEmpty) ...[
+                  IconButton(
+                    tooltip: 'URLをコピー',
+                    icon: const Icon(Icons.link_rounded, color: _kDangerRed),
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      final selectedUrl = urls.length == 1
+                          ? urls.first
+                          : await _pickUrl(context, urls);
+                      if (selectedUrl == null || selectedUrl.isEmpty) {
+                        return;
+                      }
+                      await Clipboard.setData(
+                        ClipboardData(text: selectedUrl),
+                      );
+                      messenger.showSnackBar(
+                        const SnackBar(content: Text('URLをコピーしました')),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                ],
+                IconButton(
+                  tooltip: 'コピー',
+                  icon: const Icon(Icons.copy_rounded, color: _kDangerRed),
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final clipboardText = _buildClipboardText(
+                      title,
+                      message,
+                      guidance,
+                      debugLines,
+                      stackTrace,
+                    );
+                    await Clipboard.setData(
+                      ClipboardData(text: clipboardText),
+                    );
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('エラー情報をコピーしました')),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ],
@@ -1999,6 +2102,7 @@ class _ErrorNotice extends StatelessWidget {
     String message,
     List<String> guidance,
     List<String> debugLines,
+    StackTrace? stackTrace,
   ) {
     final buffer = StringBuffer()
       ..writeln(title)
@@ -2017,6 +2121,11 @@ class _ErrorNotice extends StatelessWidget {
         buffer.writeln(line);
       }
     }
+    if (stackTrace != null) {
+      buffer.writeln();
+      buffer.writeln('Stack Trace:');
+      buffer.writeln(stackTrace.toString());
+    }
     return buffer.toString().trim();
   }
 
@@ -2027,9 +2136,8 @@ class _ErrorNotice extends StatelessWidget {
     TextStyle linkStyle,
   ) {
     final spans = <InlineSpan>[];
-    final urlPattern = RegExp(r'(https?:\/\/[^\s]+)', caseSensitive: false);
     int start = 0;
-    for (final match in urlPattern.allMatches(message)) {
+    for (final match in _urlPattern.allMatches(message)) {
       if (match.start > start) {
         spans.add(TextSpan(
           text: message.substring(start, match.start),
@@ -2081,6 +2189,241 @@ class _ErrorNotice extends StatelessWidget {
       spans.add(TextSpan(text: message, style: baseStyle));
     }
     return spans;
+  }
+
+  static final RegExp _urlPattern = RegExp(
+    r"(https?:\/\/[\w\-._~:?#\[\]@!$&'()*+,;=%\/]+)",
+    caseSensitive: false,
+  );
+
+  static List<String> _extractUrls(String text) {
+    final urls = <String>[];
+    for (final match in _urlPattern.allMatches(text)) {
+      final matchText = match.group(0)!;
+      final trimmed = matchText.replaceFirst(RegExp(r'[,.;)\]]+$'), '');
+      if (!urls.contains(trimmed)) {
+        urls.add(trimmed);
+      }
+    }
+    return urls;
+  }
+
+  static Future<String?> _pickUrl(BuildContext context, List<String> urls) {
+    return showDialog<String>(
+      context: context,
+      builder: (context) {
+        return SimpleDialog(
+          title: const Text('コピーするURLを選択'),
+          contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 0),
+          children: [
+            for (final url in urls)
+              SimpleDialogOption(
+                onPressed: () => Navigator.of(context).pop(url),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Text(
+                    url,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ),
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Text('キャンセル'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  static Future<void> _showDetailsDialog(
+    BuildContext context,
+    String title,
+    String message,
+    List<String> guidance,
+    List<String> debugLines,
+    List<String> urls,
+    StackTrace? stackTrace,
+  ) async {
+    final theme = Theme.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final scrollController = ScrollController();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Scrollbar(
+              controller: scrollController,
+              thumbVisibility: true,
+              child: SingleChildScrollView(
+                controller: scrollController,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SelectableText(
+                      message,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                            color: _kTextMain,
+                            height: 1.5,
+                          ) ??
+                          const TextStyle(
+                            color: _kTextMain,
+                            fontSize: 14,
+                            height: 1.5,
+                          ),
+                    ),
+                    if (guidance.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'ガイダンス',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: _kTextMain,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...guidance.map(
+                        (line) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            line,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: _kTextMain,
+                                  height: 1.5,
+                                ) ??
+                                const TextStyle(
+                                  color: _kTextMain,
+                                  fontSize: 14,
+                                  height: 1.5,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (debugLines.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'デバッグ情報',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: _kTextMain,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...debugLines.map(
+                        (line) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: SelectableText(
+                            line,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                                  fontFamily: 'monospace',
+                                  color: Colors.black87,
+                                ) ??
+                                const TextStyle(
+                                  fontFamily: 'monospace',
+                                  color: Colors.black87,
+                                  fontSize: 12,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (urls.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        '検出されたURL',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: _kTextMain,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...urls.map(
+                        (url) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: SelectableText(
+                            url,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.primary,
+                                  decoration: TextDecoration.underline,
+                                ) ??
+                                TextStyle(
+                                  color: theme.colorScheme.primary,
+                                  decoration: TextDecoration.underline,
+                                  fontSize: 13,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (stackTrace != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        'スタックトレース',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: _kTextMain,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        stackTrace.toString(),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                              fontFamily: 'monospace',
+                              color: Colors.black87,
+                              fontSize: 11,
+                            ) ??
+                            const TextStyle(
+                              fontFamily: 'monospace',
+                              color: Colors.black87,
+                              fontSize: 11,
+                            ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('閉じる'),
+            ),
+            TextButton(
+              onPressed: () async {
+                final navigator = Navigator.of(dialogContext);
+                await Clipboard.setData(
+                  ClipboardData(
+                    text: _buildClipboardText(
+                      title,
+                      message,
+                      guidance,
+                      debugLines,
+                      stackTrace,
+                    ),
+                  ),
+                );
+                navigator.pop();
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('エラー情報をコピーしました')),
+                );
+              },
+              child: const Text('コピー'),
+            ),
+          ],
+        );
+      },
+    );
+    scrollController.dispose();
   }
 }
 

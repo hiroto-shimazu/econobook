@@ -41,7 +41,9 @@ Future<void> seedDevData(String communityId) async {
 
   // memberships（承認待ちも混ぜる）
   Future<void> addMember(String uid, {bool bank = false, num bal = 0, bool pending = false}) {
-    return fs.collection('memberships').add({
+    // Use deterministic membership doc id to match production rules: `${communityId}_${uid}`
+    final docId = '${communityId}_$uid';
+    return fs.collection('memberships').doc(docId).set({
       'cid': communityId,
       'communityId': communityId,
       'userId': uid,
@@ -51,7 +53,7 @@ Future<void> seedDevData(String communityId) async {
       'status': pending ? 'pending' : 'active',
       'role': bank ? 'admin' : 'member',
       'pending': pending,
-    });
+    }, SetOptions(merge: true));
   }
 
   await addMember('dev_alice', bank: true, bal: 25800);
@@ -63,16 +65,18 @@ Future<void> seedDevData(String communityId) async {
 Future<void> addPendingMembers(String communityId, {int count = 3}) async {
   final fs = FirebaseFirestore.instance;
   for (int i = 0; i < count; i++) {
-    await fs.collection('memberships').add({
+    final uid = 'dev_pending_$i';
+    final docId = '${communityId}_$uid';
+    await fs.collection('memberships').doc(docId).set({
       'cid': communityId,
       'communityId': communityId,
-      'userId': 'dev_pending_$i',
+      'userId': uid,
       'joinedAt': FieldValue.serverTimestamp(),
       'balance': 0,
       'canManageBank': false,
       'status': 'pending',
       'pending': true,
       'role': 'pending',
-    });
+    }, SetOptions(merge: true));
   }
 }

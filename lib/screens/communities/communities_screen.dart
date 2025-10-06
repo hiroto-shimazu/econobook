@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../utils/firestore_index_link_copy.dart';
+
 import '../../constants/community.dart';
 import '../../models/community.dart';
 import '../central_bank_screen.dart';
@@ -162,9 +164,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               children: [
                 for (final m in sortedDocs) ...[
                   FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    future: FirebaseFirestore.instance
-                        .doc('communities/${m['cid']}')
-                        .get(),
+                    future: withIndexLinkCopy(
+                      context,
+                      () => FirebaseFirestore.instance.doc('communities/${m['cid']}').get(),
+                    ),
                     builder: (context, cSnap) {
                       final membershipData = m.data();
                       final cid =

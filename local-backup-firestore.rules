@@ -1,0 +1,120 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function membershipId(cid, uid) {
+      return cid + '_' + uid;
+    }
+
+    function isCommunityMember(cid) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/memberships/$(membershipId(cid, request.auth.uid)));
+    }
+
+    function threadExists(cid, threadId) {
+      return exists(/databases/$(database)/documents/community_chats/$(cid)/threads/$(threadId));
+    }
+
+    function threadData(cid, threadId) {
+      return get(/databases/$(database)/documents/community_chats/$(cid)/threads/$(threadId)).data;
+    }
+
+    function isThreadParticipant(cid, threadId) {
+      return isSignedIn() && threadExists(cid, threadId) &&
+        threadData(cid, threadId).participants.hasAny([request.auth.uid]);
+    }
+
+    // contacts（既存の公開フォーム）
+    match /contacts/{doc} {
+      allow create: if
+          isSignedIn()
+          || (
+            request.resource.data.keys().hasOnly([
+              'uid', 'name', 'email', 'body', 'hp', 'createdAt', 'status'
+            ]) &&
+            request.resource.data.hp == '' &&
+            request.resource.data.email is string &&
+            request.resource.data.email.size() > 3 &&
+            request.resource.data.email.size() <= 320 &&
+            request.resource.data.body is string &&
+            request.resource.data.body.size() > 1 &&
+            request.resource.data.body.size() <= 2000
+          );
+      allow read, update, delete: if false;
+    }
+
+    // users
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // communities（開発用に読み書き許可）
+    match /communities/{cid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+
+      match /posts/{postId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // memberships
+    match /memberships/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // tasks（開発用: サインインなら読み書き可）
+    match /tasks/{cid}/tasks/{taskId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // ledger（開発用: サインインなら読み書き可）
+    match /ledger/{cid}/entries/{entryId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /requests/{cid}/items/{reqId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /news/{cid}/posts/{postId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /join_requests/{cid}/items/{uid} {
+      allow read, write: if isSignedIn();
+    }
+
+    // community chats
+    // Allow any signed-in user to read/create threads and messages so that
+    // all authenticated users can chat with each other (per product requirement).
+    match /community_chats/{cid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+
+      match /threads/{threadId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update, delete: if false;
+
+        match /messages/{messageId} {
+          allow read: if isSignedIn();
+          allow create: if isSignedIn();
+          allow update, delete: if false;
+        }
+      }
+    }
+
+    // デフォルト拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../services/community_service.dart';
+import '../utils/firestore_index_link_copy.dart';
 import '../services/transaction_event_bus.dart';
 import 'central_bank_screen.dart';
 import 'community_create_screen.dart';
@@ -482,7 +483,10 @@ class _WalletScreenState extends State<WalletScreen> {
         role == 'owner' || data['canManageBank'] == true;
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: FirebaseFirestore.instance.doc('communities/$cid').get(),
+      future: withIndexLinkCopy(
+        context,
+        () => FirebaseFirestore.instance.doc('communities/$cid').get(),
+      ),
       builder: (context, snap) {
         final c = snap.data?.data() ?? <String, dynamic>{};
         final name = (c['name'] as String?) ?? cid;

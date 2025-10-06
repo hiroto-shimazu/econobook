@@ -12,6 +12,7 @@ import 'community_loan_screen.dart';
 import 'community_member_select_screen.dart';
 import 'member_chat_screen.dart';
 import 'transactions/transaction_flow_screen.dart';
+import '../utils/firestore_index_link_copy.dart';
 
 DateTime? _homeReadTimestamp(dynamic value) {
   if (value is Timestamp) return value.toDate();
@@ -116,10 +117,10 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
           .snapshots();
 
   Future<List<_QuickShortcutMember>> _loadShortcutMembers() async {
-    final membershipSnap = await FirebaseFirestore.instance
-        .collection('memberships')
-        .where('cid', isEqualTo: widget.communityId)
-        .get();
+    final membershipSnap = await withIndexLinkCopy(
+      context,
+      () => FirebaseFirestore.instance.collection('memberships').where('cid', isEqualTo: widget.communityId).get(),
+    );
 
     final futures = membershipSnap.docs.map((doc) async {
       final data = doc.data();
@@ -128,8 +129,10 @@ class _CommunityHomeScreenState extends State<CommunityHomeScreen> {
         return null;
       }
       final role = (data['role'] as String?) ?? 'member';
-      final userSnap =
-          await FirebaseFirestore.instance.doc('users/$uid').get();
+      final userSnap = await withIndexLinkCopy(
+        context,
+        () => FirebaseFirestore.instance.doc('users/$uid').get(),
+      );
       final userData = userSnap.data();
       final rawName = (userData?['displayName'] as String?)?.trim();
       final displayName =

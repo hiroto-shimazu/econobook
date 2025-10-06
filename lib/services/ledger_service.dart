@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/firestore_index_link_copy.dart';
 
 import '../constants/community.dart';
 import '../models/community.dart';
@@ -48,7 +49,7 @@ class LedgerService {
     }
 
     await refs.raw.runTransaction((tx) async {
-      final idempotencySnap = await tx.get(idempotencyRef);
+  final idempotencySnap = await tx.get(idempotencyRef);
       if (idempotencySnap.exists) {
         existingEntryId =
             (idempotencySnap.data()?['entryId'] as String?) ?? ledgerId;
@@ -65,13 +66,13 @@ class LedgerService {
       }
 
       if (!isCentralBankReceiver) {
-        final toSnap = await tx.get(toRef!);
+  final toSnap = await tx.get(toRef!);
         if (!toSnap.exists) {
           throw StateError('Recipient is not a member of this community');
         }
       }
       if (!isCentralBankPayer) {
-        final fromSnap = await tx.get(fromRef!);
+  final fromSnap = await tx.get(fromRef!);
         if (!fromSnap.exists) {
           throw StateError('Sender is not a member of this community');
         }
@@ -83,7 +84,7 @@ class LedgerService {
 
       final communityDoc = refs.communityDoc(communityId);
       if (isCentralBankPayer || isCentralBankReceiver) {
-        final communitySnap = await tx.get(communityDoc);
+  final communitySnap = await tx.get(communityDoc);
         final treasury = communitySnap.data()?.treasury ??
             const CommunityTreasury(
               balance: 0,
@@ -149,7 +150,7 @@ class LedgerService {
     });
 
     final docId = existingEntryId ?? ledgerId;
-    final snap = await refs.ledgerEntries(communityId).doc(docId).get();
+  final snap = await withIndexLinkCopyForService(() => refs.ledgerEntries(communityId).doc(docId).get());
     final entry = snap.data();
     if (entry == null) {
       throw StateError('Ledger entry not found after transaction');
@@ -164,7 +165,7 @@ class LedgerService {
     required String performedBy,
     String? reason,
   }) async {
-    final entrySnap = await refs.ledgerEntries(communityId).doc(entryId).get();
+  final entrySnap = await withIndexLinkCopyForService(() => refs.ledgerEntries(communityId).doc(entryId).get());
     final entry = entrySnap.data();
     if (entry == null) {
       throw StateError('Entry $entryId not found');

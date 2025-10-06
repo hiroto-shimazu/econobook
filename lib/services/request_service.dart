@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/firestore_index_link_copy.dart';
 
 import '../constants/community.dart';
 import '../models/ledger_entry.dart';
@@ -34,13 +35,13 @@ class RequestService {
     final isCentralBankSender = fromUid == kCentralBankUid;
     final fromMembership = isCentralBankSender
         ? null
-        : await refs.membershipDoc(communityId, fromUid).get();
+  : await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, fromUid).get());
     if (!isCentralBankSender && !(fromMembership?.exists ?? false)) {
       throw StateError('Requester is not a member');
     }
     final isCentralBankRecipient = toUid == kCentralBankUid;
     if (!isCentralBankRecipient) {
-      final toMembership = await refs.membershipDoc(communityId, toUid).get();
+  final toMembership = await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, toUid).get());
       if (!toMembership.exists) {
         throw StateError('Recipient is not a member');
       }
@@ -63,7 +64,7 @@ class RequestService {
       type: type,
     );
     await docRef.set(request);
-    return (await docRef.get()).data()!;
+  return (await withIndexLinkCopyForService(() => docRef.get())).data()!;
   }
 
   Future<SplitCalculation> createSplitRequests({
@@ -84,13 +85,13 @@ class RequestService {
     }
 
     final requesterMembership =
-        await refs.membershipDoc(communityId, requesterUid).get();
+  await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, requesterUid).get());
     if (!requesterMembership.exists) {
       throw StateError('Requester is not a member of this community');
     }
 
     for (final uid in targetUids) {
-      final memberDoc = await refs.membershipDoc(communityId, uid).get();
+  final memberDoc = await withIndexLinkCopyForService(() => refs.membershipDoc(communityId, uid).get());
       if (!memberDoc.exists) {
         throw StateError('Target user $uid is not a member of this community');
       }
@@ -139,7 +140,7 @@ class RequestService {
 
     bool alreadyHandled = false;
     await refs.raw.runTransaction((tx) async {
-      final snap = await tx.get(requestRef);
+  final snap = await tx.get(requestRef);
       if (!snap.exists) {
         throw StateError('Request not found');
       }
@@ -157,7 +158,7 @@ class RequestService {
     });
 
     if (alreadyHandled) {
-      final existing = await requestRef.get();
+  final existing = await withIndexLinkCopyForService(() => requestRef.get());
       final data = existing.data();
       if (data == null) throw StateError('Request missing');
       return data;
@@ -165,7 +166,7 @@ class RequestService {
 
     late final LedgerEntry entry;
     try {
-      final requestSnap = await requestRef.get();
+  final requestSnap = await withIndexLinkCopyForService(() => requestRef.get());
       final request = requestSnap.data();
       if (request == null) {
         throw StateError('Request disappeared');
@@ -198,7 +199,7 @@ class RequestService {
       'ledgerEntryId': entry.id,
     });
 
-    final updated = await requestRef.get();
+  final updated = await withIndexLinkCopyForService(() => requestRef.get());
     final result = updated.data();
     if (result == null) {
       throw StateError('Request update failed');
@@ -214,7 +215,7 @@ class RequestService {
   }) async {
     final requestRef = refs.paymentRequests(communityId).doc(requestId);
     await refs.raw.runTransaction((tx) async {
-      final snap = await tx.get(requestRef);
+  final snap = await tx.get(requestRef);
       if (!snap.exists) {
         throw StateError('Request not found');
       }
@@ -229,7 +230,7 @@ class RequestService {
         'rejectionReason': reason,
       });
     });
-    final updated = await requestRef.get();
+  final updated = await withIndexLinkCopyForService(() => requestRef.get());
     final result = updated.data();
     if (result == null) throw StateError('Request missing');
     return result;

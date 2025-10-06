@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/chat_message.dart';
+import 'firestore_refs.dart';
 
 /// Service responsible for direct member-to-member chat handling within a
 /// community.
@@ -72,73 +73,129 @@ class ChatService {
     final threadId = buildThreadId(senderUid, receiverUid);
     final threadRef = _threads(communityId).doc(threadId);
     final messageRef = _messages(communityId, threadId).doc();
-    final participants = [senderUid, receiverUid]..sort();
+    final membershipDocId = FirestoreRefs.membershipId(communityId, senderUid);
 
-    final sanitizedMetadata = Map<String, dynamic>.from(
-        (metadata ?? const <String, dynamic>{}));
+    final sanitizedMetadata =
+        Map<String, dynamic>.from((metadata ?? const <String, dynamic>{}));
 
-    await _firestore.runTransaction((transaction) async {
-      final threadSnap = await transaction.get(threadRef);
+    try {
+      await _firestore.runTransaction((transaction) async {
+        final threadSnap = await transaction.get(threadRef);
+        List<String> participants;
 
-      transaction.set(messageRef, {
-        'type': type.name,
-        'text': text,
-        'metadata': sanitizedMetadata,
-        'senderUid': senderUid,
-        'receiverUid': receiverUid,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+        transaction.set(messageRef, {
+          'type': type.name,
+          'text': text,
+          'metadata': sanitizedMetadata,
+          'senderUid': senderUid,
+          'receiverUid': receiverUid,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
 
-      final now = FieldValue.serverTimestamp();
-      final unreadCounts = <String, int>{};
-      final lastMessagePreview = _buildPreview(
-        type: type,
-        text: text,
-        previewText: previewText,
-        metadata: sanitizedMetadata,
-      );
+        final now = FieldValue.serverTimestamp();
+        final unreadCounts = <String, int>{};
+        final lastMessagePreview = _buildPreview(
+          type: type,
+          text: text,
+          previewText: previewText,
+          metadata: sanitizedMetadata,
+        );
 
-      if (threadSnap.exists) {
-        final data = threadSnap.data() ?? <String, dynamic>{};
-        final existingUnread = Map<String, dynamic>.from(
-            (data['unreadCounts'] as Map?) ?? const <String, dynamic>{});
-
-        for (final uid in participants) {
-          final currentValue = existingUnread[uid];
-          final currentCount = currentValue is num ? currentValue.toInt() : 0;
-          if (uid == senderUid) {
-            unreadCounts[uid] = 0;
-          } else {
-            unreadCounts[uid] = currentCount + 1;
+        if (threadSnap.exists) {
+          final data = threadSnap.data() ?? <String, dynamic>{};
+          final existingParticipants = List<String>.from(
+            (data['participants'] as List?)?.map((e) => e as String) ??
+                const <String>[],
+          );
+          final participantSet =
+              <String>{...existingParticipants, senderUid, receiverUid};
+          if (participantSet.length > 2) {
+            throw StateError('Conversation threads support up to two participants');
           }
-        }
+          participants = participantSet.toList()..sort();
+          final existingUnread = Map<String, dynamic>.from(
+              (data['unreadCounts'] as Map?) ?? const <String, dynamic>{});
 
-        transaction.update(threadRef, {
-          'participants': participants,
-          'updatedAt': now,
-          'lastMessage': lastMessagePreview,
-          'lastSenderUid': senderUid,
-          'lastMessageType': type.name,
-          'lastMessageMetadata': sanitizedMetadata,
-          'unreadCounts': unreadCounts,
-        });
-      } else {
-        for (final uid in participants) {
-          unreadCounts[uid] = uid == senderUid ? 0 : 1;
-        }
+          for (final uid in participants) {
+            final currentValue = existingUnread[uid];
+            final currentCount = currentValue is num ? currentValue.toInt() : 0;
+            if (uid == senderUid) {
+              unreadCounts[uid] = 0;
+            } else {
+              unreadCounts[uid] = currentCount + 1;
+            }
+          }
 
-        transaction.set(threadRef, {
-          'participants': participants,
-          'createdAt': now,
-          'updatedAt': now,
-          'lastMessage': lastMessagePreview,
-          'lastSenderUid': senderUid,
-          'lastMessageType': type.name,
-          'lastMessageMetadata': sanitizedMetadata,
-          'unreadCounts': unreadCounts,
-        });
+          transaction.update(threadRef, {
+            'participants': participants,
+            'updatedAt': now,
+            'lastMessage': lastMessagePreview,
+            'lastSenderUid': senderUid,
+            'lastMessageType': type.name,
+            'lastMessageMetadata': sanitizedMetadata,
+            'unreadCounts': unreadCounts,
+          });
+        } else {
+          participants = [senderUid, receiverUid]..sort();
+          for (final uid in participants) {
+            unreadCounts[uid] = uid == senderUid ? 0 : 1;
+          }
+
+          transaction.set(threadRef, {
+            'participants': participants,
+            'createdAt': now,
+            'updatedAt': now,
+            'lastMessage': lastMessagePreview,
+            'lastSenderUid': senderUid,
+            'lastMessageType': type.name,
+            'lastMessageMetadata': sanitizedMetadata,
+            'unreadCounts': unreadCounts,
+          });
+        }
+      });
+    } on FirebaseException catch (e, stack) {
+      if (e.code == 'permission-denied') {
+        bool membershipExists = false;
+        Object? membershipCheckError;
+        try {
+          final membershipSnap = await _firestore
+              .collection('memberships')
+              .doc(membershipDocId)
+              .get();
+          membershipExists = membershipSnap.exists;
+        } catch (error) {
+          membershipCheckError = error;
+        }
+        final message = StringBuffer()
+          ..write('permission-denied when writing community_chats/')
+          ..write(communityId)
+          ..write('/threads/')
+          ..write(threadId)
+          ..write('/messages/')
+          ..write(messageRef.id)
+          ..write('; membershipDoc=')
+          ..write(membershipDocId)
+          ..write(' exists=')
+          ..write(membershipExists);
+        if (membershipCheckError != null) {
+          message
+            ..write('; membershipCheckError=')
+            ..write(membershipCheckError);
+        }
+        if (e.message != null && e.message!.isNotEmpty) {
+          message
+            ..write('; originalMessage=')
+            ..write(e.message);
+        }
+        throw FirebaseException(
+          plugin: e.plugin,
+          code: e.code,
+          message: message.toString(),
+          stackTrace: stack ?? e.stackTrace,
+        );
       }
-    });
+      rethrow;
+    }
   }
 
   String _buildPreview({
