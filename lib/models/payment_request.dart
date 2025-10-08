@@ -14,6 +14,7 @@ class PaymentRequest {
     required this.createdBy,
     required this.visibility,
     required this.type,
+    this.linkedRequestId,
   });
 
   final String id;
@@ -27,7 +28,8 @@ class PaymentRequest {
   final DateTime? createdAt;
   final String createdBy;
   final String visibility;
-  final String type; // request | invoice | redeem | loan | other categorisations
+  final String type; // request | invoice | bank_borrow | bank_repay | other categories
+  final String? linkedRequestId;
 
   factory PaymentRequest.fromSnapshot(
       DocumentSnapshot<Map<String, dynamic>> snap) {
@@ -50,11 +52,12 @@ class PaymentRequest {
       createdBy: (data['createdBy'] as String?) ?? '',
       visibility: (data['visibility'] as String?) ?? 'community',
       type: (data['type'] as String?) ?? 'request',
+      linkedRequestId: (data['linkedRequestId'] as String?)?.trim(),
     );
   }
 
   Map<String, Object?> toMap() {
-    return {
+    final map = <String, Object?>{
       'cid': communityId,
       'fromUid': fromUid,
       'toUid': toUid,
@@ -67,6 +70,10 @@ class PaymentRequest {
       'visibility': visibility,
       'type': type,
     };
+    if (linkedRequestId != null && linkedRequestId!.isNotEmpty) {
+      map['linkedRequestId'] = linkedRequestId;
+    }
+    return map;
   }
 }
 

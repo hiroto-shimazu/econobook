@@ -65,8 +65,8 @@ enum _CommunityDashboardTab {
   talk,
   wallet,
   members,
-  settings,
   bank,
+  settings,
 }
 
 enum _TalkFilterOption { all, unread, mention, active }
@@ -85,7 +85,7 @@ extension _CommunityDashboardTabLabel on _CommunityDashboardTab {
       case _CommunityDashboardTab.members:
         return 'メンバー';
       case _CommunityDashboardTab.settings:
-        return 'コミュ設定';
+        return 'コミュニティ';
       case _CommunityDashboardTab.bank:
         return 'バンク';
     }
@@ -263,6 +263,10 @@ class _CommunityMemberSelectScreenState
   String? _bankPermissionUpdatingUid;
   bool _addingBankManager = false;
   _BankActionType? _bankActionInProgress;
+  bool _creatingBorrowRequest = false;
+  bool _creatingRepayRequest = false;
+  String? _processingBankRequestId;
+  final Map<String, DateTime> _pendingRequestDueDateEdits = <String, DateTime>{};
 
   // ---- Derived counts ----
   int get _pendingCount => _members
@@ -275,6 +279,24 @@ class _CommunityMemberSelectScreenState
 
   // Total approvals waiting: member pending + join request pending
   int get pendingApprovals => _pendingCount + _pendingJoinRequestCount;
+
+  bool get _isCurrentUserOwner =>
+      _community?.ownerUid == widget.currentUserUid;
+
+  bool get _currentUserHasBankPermission {
+    if (_isCurrentUserOwner) return true;
+    final member = _findMemberByUid(widget.currentUserUid);
+    return member?.membership.canManageBank ?? false;
+  }
+
+  num get _bankHoldings => _community?.treasury.balance ?? 0;
+
+  num get _memberHoldings => _members
+      .where((member) =>
+          !member.isPending && member.membership.userId != kCentralBankUid)
+      .fold<num>(0, (sum, member) => sum + member.membership.balance);
+
+  num get _circulationTotal => _bankHoldings + _memberHoldings;
 
   @override
   void initState() {
@@ -322,6 +344,41 @@ class _CommunityMemberSelectScreenState
       0,
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
+    );
+  }
+
+  void _handlePendingRequestDueDateChanged(
+    PaymentRequest request,
+    DateTime? newDueDate,
+  ) {
+    final normalized = newDueDate == null
+        ? null
+        : DateUtils.dateOnly(newDueDate);
+    setState(() {
+      if (normalized == null || _isSameDay(normalized, request.expireAt)) {
+        _pendingRequestDueDateEdits.remove(request.id);
+      } else {
+        _pendingRequestDueDateEdits[request.id] = normalized;
+      }
+    });
+  }
+
+  bool _isSameDay(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  bool _isBalanceError(Object error) {
+    final message = error.toString();
+    return message.contains('Insufficient balance') ||
+        message.contains('残高が不足');
+  }
+
+  void _showBalanceErrorSnack() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('残高エラー: 残高が不足しています。')),
     );
   }
 
@@ -450,7 +507,7 @@ class _CommunityMemberSelectScreenState
       ),
       _OverviewNavItem(
         tab: _CommunityDashboardTab.settings,
-        title: 'コミュ設定',
+        title: 'コミュニティ',
         description: '公開範囲と通知を調整',
         icon: Icons.settings_outlined,
         accentColor: const Color(0xFF6366F1),
@@ -826,11 +883,18 @@ class _CommunityMemberSelectScreenState
               final isDeposit = toUid == userUid;
               final counterpartyUid = isDeposit ? fromUid : toUid;
               final counterpartyName = _displayNameFor(counterpartyUid);
-              final title = memo != null && memo.isNotEmpty
-                  ? memo
-                  : isDeposit
-                      ? '$counterpartyName から受け取り'
-                      : '$counterpartyName へ送金';
+              final entryType = (data['type'] as String?) ?? '';
+              final fallbackTitle = () {
+                if (isDeposit &&
+                    counterpartyUid == kCentralBankUid &&
+                    entryType == 'bank_borrow') {
+                  return '中央銀行から借入';
+                }
+                return isDeposit
+                    ? '$counterpartyName から受け取り'
+                    : '$counterpartyName へ送金';
+              }();
+              final title = memo != null && memo.isNotEmpty ? memo : fallbackTitle;
               final subtitle = _formatWalletTimestamp(createdAt);
               final adjustedAmount = isDeposit ? amount : -amount;
 
@@ -1026,13 +1090,13 @@ class _CommunityMemberSelectScreenState
 
   Widget _buildBankSection(String currencyCode) {
     final treasury = _community?.treasury;
-    final balance = treasury?.balance ?? 0;
-    final reserve = treasury?.initialGrant ?? 0;
-    final allowMinting = _community?.currency.allowMinting ?? true;
-    final isOwner = _community?.ownerUid == widget.currentUserUid;
+    final bankBalance = treasury?.balance ?? 0;
+    final memberHoldings = _memberHoldings;
+    final circulationTotal = _circulationTotal;
+    final currencyPrecision = _community?.currency.precision ?? 0;
+    final isOwner = _isCurrentUserOwner;
     final currentMember = _findMemberByUid(widget.currentUserUid);
-    final hasBankPermission =
-        isOwner || (currentMember?.membership.canManageBank ?? false);
+    final hasBankPermission = _currentUserHasBankPermission;
     final permissionMembers = [
       for (final member in _members)
         if (member.membership.canManageBank)
@@ -1049,12 +1113,46 @@ class _CommunityMemberSelectScreenState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _BankSummaryGrid(
-          balance: balance,
-          reserve: reserve,
           currencyCode: currencyCode,
-          allowMinting: allowMinting,
+          bankBalance: bankBalance,
+          memberHoldings: memberHoldings,
+          circulationTotal: circulationTotal,
+          precision: currencyPrecision,
         ),
         const SizedBox(height: 16),
+        if (currentMember != null &&
+            currentMember.membership.userId != kCentralBankUid) ...[
+          _MemberBorrowHistory(
+            communityId: widget.communityId,
+            memberUid: widget.currentUserUid,
+            currencyCode: currencyCode,
+            precision: currencyPrecision,
+            onRepayLoan: (loan, remaining) =>
+                _handleMemberRepayForLoan(loan, remaining, currencyCode),
+          ),
+          const SizedBox(height: 16),
+        ],
+        _BankMemberRequestButtons(
+          onBorrow: () => _handleMemberBorrow(currencyCode),
+          onRepay: () => _handleMemberRepay(currencyCode),
+          borrowBusy: _creatingBorrowRequest,
+          repayBusy: _creatingRepayRequest,
+        ),
+        const SizedBox(height: 16),
+        if (hasBankPermission) ...[
+          _BankPendingRequests(
+            communityId: widget.communityId,
+            currencyCode: currencyCode,
+            processingRequestId: _processingBankRequestId,
+            onApprove: _handleApproveBankRequest,
+            onReject: _handleRejectBankRequest,
+            resolveDisplayName: _displayNameFor,
+            precision: currencyPrecision,
+            editedDueDates: _pendingRequestDueDateEdits,
+            onDueDateChanged: _handlePendingRequestDueDateChanged,
+          ),
+          const SizedBox(height: 16),
+        ],
         if (hasBankPermission) ...[
           _BankQuickActions(
             onLend: () => _handleBankLend(currencyCode),
@@ -1064,13 +1162,15 @@ class _CommunityMemberSelectScreenState
           ),
           const SizedBox(height: 16),
         ],
-        _BankPrimaryActions(
-          onMint: () => _handleMint(currencyCode),
-          onBurn: () => _handleBurn(currencyCode),
-          minting: _minting,
-          burning: _burning,
-        ),
-        const SizedBox(height: 16),
+        if (isOwner) ...[
+          _BankPrimaryActions(
+            onMint: () => _handleMint(currencyCode),
+            onBurn: () => _handleBurn(currencyCode),
+            minting: _minting,
+            burning: _burning,
+          ),
+          const SizedBox(height: 16),
+        ],
         _BankCurrencyList(
           currencyCode: currencyCode,
           currencyName: _community?.currency.name ?? '既定通貨',
@@ -1627,9 +1727,13 @@ class _CommunityMemberSelectScreenState
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('承認に失敗しました: $e')),
-      );
+      if (_isBalanceError(e)) {
+        _showBalanceErrorSnack();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('承認に失敗しました: $e')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _processingRequestId = null);
@@ -1655,12 +1759,116 @@ class _CommunityMemberSelectScreenState
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('却下に失敗しました: $e')),
-      );
+      if (_isBalanceError(e)) {
+        _showBalanceErrorSnack();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('却下に失敗しました: $e')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _processingRequestId = null);
+      }
+    }
+  }
+
+  Future<void> _handleApproveBankRequest(PaymentRequest request) async {
+    if (!_currentUserHasBankPermission) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('中央銀行リクエストの承認権限がありません。')),
+      );
+      return;
+    }
+    if (_processingBankRequestId != null) {
+      return;
+    }
+    setState(() => _processingBankRequestId = request.id);
+    try {
+      final editedDueDate = _pendingRequestDueDateEdits[request.id];
+      if (editedDueDate != null && !_isSameDay(editedDueDate, request.expireAt)) {
+        await _requestService.updateRequestDueDate(
+          communityId: request.communityId,
+          requestId: request.id,
+          updatedBy: widget.currentUserUid,
+          dueDate: editedDueDate,
+        );
+      }
+      await _requestService.approveRequest(
+        communityId: request.communityId,
+        requestId: request.id,
+        approvedBy: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      if (_pendingRequestDueDateEdits.containsKey(request.id)) {
+        setState(() {
+          _pendingRequestDueDateEdits.remove(request.id);
+        });
+      }
+      final memberName = _displayNameFor(
+          request.fromUid == kCentralBankUid ? request.toUid : request.fromUid);
+      final action = request.toUid == kCentralBankUid ? '借入' : '返済';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$memberName の$actionリクエストを承認しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      if (_isBalanceError(e)) {
+        _showBalanceErrorSnack();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('承認に失敗しました: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _processingBankRequestId = null);
+      }
+    }
+  }
+
+  Future<void> _handleRejectBankRequest(PaymentRequest request) async {
+    if (!_currentUserHasBankPermission) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('中央銀行リクエストの却下権限がありません。')),
+      );
+      return;
+    }
+    if (_processingBankRequestId != null) {
+      return;
+    }
+    setState(() => _processingBankRequestId = request.id);
+    try {
+      await _requestService.rejectRequest(
+        communityId: request.communityId,
+        requestId: request.id,
+        rejectedBy: widget.currentUserUid,
+      );
+      if (!mounted) return;
+      if (_pendingRequestDueDateEdits.containsKey(request.id)) {
+        setState(() {
+          _pendingRequestDueDateEdits.remove(request.id);
+        });
+      }
+      final memberName = _displayNameFor(
+          request.fromUid == kCentralBankUid ? request.toUid : request.fromUid);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$memberName のリクエストを却下しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      if (_isBalanceError(e)) {
+        _showBalanceErrorSnack();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('却下に失敗しました: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _processingBankRequestId = null);
       }
     }
   }
@@ -2415,6 +2623,10 @@ class _CommunityMemberSelectScreenState
       );
     } catch (e, st) {
       if (!mounted) return;
+      if (_isBalanceError(e)) {
+        _showBalanceErrorSnack();
+        return;
+      }
       final formatted = formatError(e, st);
       showCopyableErrorSnack(
         context: context,
@@ -2468,6 +2680,10 @@ class _CommunityMemberSelectScreenState
       );
     } catch (e, st) {
       if (!mounted) return;
+      if (_isBalanceError(e)) {
+        _showBalanceErrorSnack();
+        return;
+      }
       final formatted = formatError(e, st);
       showCopyableErrorSnack(
         context: context,
@@ -2526,6 +2742,10 @@ class _CommunityMemberSelectScreenState
       );
     } catch (e, st) {
       if (!mounted) return;
+      if (_isBalanceError(e)) {
+        _showBalanceErrorSnack();
+        return;
+      }
       final formatted = formatError(e, st);
       showCopyableErrorSnack(
         context: context,
@@ -2536,6 +2756,319 @@ class _CommunityMemberSelectScreenState
       if (mounted) {
         setState(() => _bankActionInProgress = null);
       }
+    }
+  }
+
+  Future<void> _handleMemberBorrow(String currencyCode) async {
+    if (_creatingBorrowRequest) return;
+    final input = await _promptMemberRequest(
+      title: '中央銀行に借入リクエスト',
+      description: '中央銀行に通貨を借りるリクエストを送信します。',
+      submitLabel: '借入を依頼',
+      currencyCode: currencyCode,
+      enableDueDate: true,
+      dueDateFieldLabel: '返還期限',
+      amountPrecision: _community?.currency.precision,
+    );
+    if (input == null) return;
+    setState(() => _creatingBorrowRequest = true);
+    try {
+      await _requestService.createRequest(
+        communityId: widget.communityId,
+        fromUid: widget.currentUserUid,
+        toUid: kCentralBankUid,
+        amount: input.amount,
+        memo: input.memo,
+        createdBy: widget.currentUserUid,
+        type: 'bank_borrow',
+        expireAt: input.dueDate,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('借入リクエストを送信しました')), 
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('借入リクエストに失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _creatingBorrowRequest = false);
+      }
+    }
+  }
+
+  Future<void> _handleMemberRepay(
+    String currencyCode, {
+    double? initialAmount,
+    String? initialMemo,
+    String? linkedRequestId,
+  }) async {
+    if (_creatingRepayRequest) return;
+    final input = await _promptMemberRequest(
+      title: '中央銀行へ返済リクエスト',
+      description: '中央銀行に通貨を返すリクエストを送信します。',
+      submitLabel: '返済を依頼',
+      currencyCode: currencyCode,
+      initialAmount: initialAmount,
+      amountPrecision: _community?.currency.precision,
+      initialMemo: initialMemo,
+    );
+    if (input == null) return;
+    setState(() => _creatingRepayRequest = true);
+    try {
+      await _requestService.createRequest(
+        communityId: widget.communityId,
+        fromUid: kCentralBankUid,
+        toUid: widget.currentUserUid,
+        amount: input.amount,
+        memo: input.memo,
+        createdBy: widget.currentUserUid,
+        type: 'bank_repay',
+        linkedRequestId: linkedRequestId,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('返済リクエストを送信しました')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('返済リクエストに失敗しました: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _creatingRepayRequest = false);
+      }
+    }
+  }
+
+  Future<void> _handleMemberRepayForLoan(
+    PaymentRequest loan,
+    num outstanding,
+    String currencyCode,
+  ) async {
+    final remaining = outstanding.toDouble();
+    if (remaining <= 0) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('この借入はすでに完済済みです。')),
+      );
+      return;
+    }
+    final locale = MaterialLocalizations.of(context);
+    final createdLabel = loan.createdAt != null
+        ? locale.formatMediumDate(loan.createdAt!)
+        : '借入';
+    final defaultMemo = '借入 ($createdLabel) の返済';
+    await _handleMemberRepay(
+      currencyCode,
+      initialAmount: remaining,
+      initialMemo: defaultMemo,
+      linkedRequestId: loan.id,
+    );
+  }
+
+  Future<_MemberRequestInput?> _promptMemberRequest({
+    required String title,
+    required String description,
+    required String submitLabel,
+    required String currencyCode,
+    bool enableDueDate = false,
+    DateTime? initialDueDate,
+    String dueDateFieldLabel = '返還期限',
+    double? initialAmount,
+    int? amountPrecision,
+    String? initialMemo,
+  }) async {
+    final amountController = TextEditingController();
+    final memoController = TextEditingController();
+    DateTime? selectedDueDate = initialDueDate;
+    if (initialAmount != null) {
+      final precision = amountPrecision ?? 2;
+      final decimals = initialAmount == initialAmount.truncateToDouble()
+          ? 0
+          : precision.clamp(0, 6).toInt();
+      var formatted = initialAmount.toStringAsFixed(decimals);
+      if (formatted.contains('.')) {
+        formatted = formatted.replaceFirst(RegExp(r'0+$'), '');
+        formatted = formatted.replaceFirst(RegExp(r'\.$'), '');
+      }
+      amountController.text = formatted;
+    }
+    if (initialMemo != null && initialMemo.isNotEmpty) {
+      memoController.text = initialMemo;
+    }
+    try {
+      return await showModalBottomSheet<_MemberRequestInput>(
+        context: context,
+        isScrollControlled: true,
+        builder: (sheetContext) {
+          String? error;
+          final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, bottomInset + 24),
+            child: StatefulBuilder(
+              builder: (context, setStateModal) {
+                Future<void> pickDueDate() async {
+                  final now = DateTime.now();
+                  final firstDate = DateUtils.dateOnly(now);
+                  final base =
+                      selectedDueDate ?? now.add(const Duration(days: 14));
+                  final initial = base.isBefore(firstDate) ? firstDate : base;
+                  final chosen = await showDatePicker(
+                    context: sheetContext,
+                    initialDate: initial,
+                    firstDate: firstDate,
+                    lastDate: DateTime(now.year + 5, 12, 31),
+                  );
+                  if (chosen != null) {
+                    setStateModal(() {
+                      selectedDueDate = DateUtils.dateOnly(chosen);
+                    });
+                  }
+                }
+
+                return SafeArea(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          description,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black54,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: amountController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                            signed: false,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: '金額 ($currencyCode)',
+                            hintText: '例) 5000',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: memoController,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            labelText: 'メモ (任意)',
+                            hintText: '用途や補足を入力',
+                          ),
+                        ),
+                        if (enableDueDate) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            dueDateFieldLabel,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: _kTextMain,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            onPressed: pickDueDate,
+                            icon: const Icon(Icons.event_note),
+                            label: Text(
+                              selectedDueDate == null
+                                  ? '期限を選択'
+                                  : MaterialLocalizations.of(sheetContext)
+                                      .formatMediumDate(selectedDueDate!),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                                horizontal: 16,
+                              ),
+                              foregroundColor: _kMainBlue,
+                              side: const BorderSide(color: _kMainBlue, width: 1.5),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            '返済を予定している日を設定してください',
+                            style: TextStyle(fontSize: 11, color: _kTextSub),
+                          ),
+                        ],
+                        if (error != null) ...[
+                          const SizedBox(height: 12),
+                          Text(
+                            error!,
+                            style: const TextStyle(color: Colors.redAccent),
+                          ),
+                        ],
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.of(sheetContext).pop(),
+                                child: const Text('キャンセル'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: () {
+                                  final raw =
+                                      amountController.text.trim().replaceAll(',', '');
+                                  final amount = double.tryParse(raw);
+                                  if (amount == null || amount <= 0) {
+                                    setStateModal(
+                                        () => error = '1以上の金額を入力してください');
+                                    return;
+                                  }
+                                  if (enableDueDate && selectedDueDate == null) {
+                                    setStateModal(
+                                        () => error = '返還期限を選択してください');
+                                    return;
+                                  }
+                                  Navigator.of(sheetContext).pop(
+                                    _MemberRequestInput(
+                                      amount: amount,
+                                      memo: memoController.text.trim().isEmpty
+                                          ? null
+                                          : memoController.text.trim(),
+                                      dueDate: selectedDueDate == null
+                                          ? null
+                                          : DateUtils.dateOnly(selectedDueDate!),
+                                    ),
+                                  );
+                                },
+                                child: Text(submitLabel),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
+      );
+    } finally {
+      amountController.dispose();
+      memoController.dispose();
     }
   }
 
@@ -2705,6 +3238,13 @@ class _CommunityMemberSelectScreenState
   }
 
   Future<void> _handleMint(String currencyCode) async {
+    if (!_isCurrentUserOwner) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('発行はオーナーのみ実行できます。')),
+      );
+      return;
+    }
     final amount = await _promptAmountDialog('発行 (Mint)', currencyCode);
     if (amount == null) return;
     if (amount <= 0) {
@@ -2739,6 +3279,13 @@ class _CommunityMemberSelectScreenState
   }
 
   Future<void> _handleBurn(String currencyCode) async {
+    if (!_isCurrentUserOwner) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('回収はオーナーのみ実行できます。')),
+      );
+      return;
+    }
     final amount = await _promptAmountDialog('回収 (Burn)', currencyCode);
     if (amount == null) return;
     if (amount <= 0) {
@@ -3313,13 +3860,20 @@ class _CommunityMemberSelectScreenState
   final selectedBalance = selectedMembers.fold<num>(
     0, (num sum, _SelectableMember m) => sum + (m.membership.balance));
   final currencyCode = _community?.currency.code ?? 'PTS';
+    final currentMember = _findMemberByUid(widget.currentUserUid);
+    final resolvedRole = currentMember?.membership.role ??
+        widget.currentUserRole ??
+        'member';
+    final currentHasBankPrivilege =
+        currentMember?.membership.canManageBank ?? false;
 
     final slivers = <Widget>[
       SliverToBoxAdapter(
         child: _HeaderSection(
           community: _community,
           communityNameFallback: communityName,
-          currentRole: widget.currentUserRole,
+          currentRole: resolvedRole,
+          isBankManager: currentHasBankPrivilege,
           memberCount: _members.length,
           pendingCount: pendingApprovals,
         ),
@@ -3671,13 +4225,15 @@ class _HeaderSection extends StatelessWidget {
     required this.community,
     required this.communityNameFallback,
     required this.currentRole,
+    required this.isBankManager,
     required this.memberCount,
     required this.pendingCount,
   });
 
   final Community? community;
   final String communityNameFallback;
-  final String? currentRole;
+  final String currentRole;
+  final bool isBankManager;
   final int memberCount;
   final int pendingCount;
 
@@ -3689,7 +4245,7 @@ class _HeaderSection extends StatelessWidget {
         ? community!.name.characters.first
         : communityNameFallback.characters.first;
     final currency = community?.currency.code ?? 'PTS';
-    final roleLabel = _roleLabel(currentRole ?? 'member');
+  final roleLabel = _roleLabel(currentRole, canManageBank: isBankManager);
     return Material(
       color: Colors.transparent,
       child: Column(
@@ -3874,15 +4430,6 @@ class _HeaderSection extends StatelessWidget {
     );
   }
 
-  static String _roleLabel(String role) {
-    return switch (role) {
-      'owner' => 'オーナー',
-      'admin' => '管理者',
-      'mediator' => '仲介',
-      'pending' => '承認待ち',
-      _ => 'メンバー',
-    };
-  }
 }
 
 class _HeaderIconButton extends StatelessWidget {
@@ -6123,35 +6670,38 @@ class _DangerZoneTile extends StatelessWidget {
 
 class _BankSummaryGrid extends StatelessWidget {
   const _BankSummaryGrid({
-    required this.balance,
-    required this.reserve,
     required this.currencyCode,
-    required this.allowMinting,
+    required this.bankBalance,
+    required this.memberHoldings,
+    required this.circulationTotal,
+    required this.precision,
   });
 
-  final num balance;
-  final num reserve;
   final String currencyCode;
-  final bool allowMinting;
+  final num bankBalance;
+  final num memberHoldings;
+  final num circulationTotal;
+  final int precision;
 
   @override
   Widget build(BuildContext context) {
-    final circulation = balance - reserve;
+    final memberShare = max<num>(0, memberHoldings);
+    final bankText = bankBalance.toDouble().toStringAsFixed(precision);
+    final memberText = memberShare.toDouble().toStringAsFixed(precision);
+    final totalText = circulationTotal.toDouble().toStringAsFixed(precision);
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth > 480;
         final cards = [
           _BankSummaryCard(
-            title: '発行残高 ($currencyCode)',
-            value: balance.toStringAsFixed(0),
-            subtitle:
-                '流通: ${circulation.toStringAsFixed(0)} / 予備: ${reserve.toStringAsFixed(0)}',
+            title: 'バンク残高 ($currencyCode)',
+            value: bankText,
+            subtitle: 'メンバー保有: $memberText',
           ),
           _BankSummaryCard(
-            title: 'システムステータス',
-            value: allowMinting ? '稼働中' : '一時停止',
-            subtitle:
-                allowMinting ? '台帳検算: 正常 · アラート: 0件' : '発行は停止中です',
+            title: '流通通貨量 ($currencyCode)',
+            value: totalText,
+            subtitle: '累計 発行-回収 / バンク保有: $bankText',
           ),
         ];
         if (isWide) {
@@ -6230,6 +6780,1094 @@ class _BankSummaryCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _MemberRequestInput {
+  const _MemberRequestInput({
+    required this.amount,
+    this.memo,
+    this.dueDate,
+  });
+
+  final double amount;
+  final String? memo;
+  final DateTime? dueDate;
+}
+
+class _BankMemberRequestButtons extends StatelessWidget {
+  const _BankMemberRequestButtons({
+    required this.onBorrow,
+    required this.onRepay,
+    required this.borrowBusy,
+    required this.repayBusy,
+  });
+
+  final VoidCallback onBorrow;
+  final VoidCallback onRepay;
+  final bool borrowBusy;
+  final bool repayBusy;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FilledButton(
+            onPressed: borrowBusy ? null : onBorrow,
+            style: FilledButton.styleFrom(
+              backgroundColor: _kMainBlue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            child: borrowBusy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.south_west, size: 20),
+                      SizedBox(width: 8),
+                      Text('借りる'),
+                    ],
+                  ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: OutlinedButton(
+            onPressed: repayBusy ? null : onRepay,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _kMainBlue,
+              side: const BorderSide(color: _kMainBlue, width: 1.5),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            child: repayBusy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(_kMainBlue),
+                    ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.north_east, size: 20),
+                      SizedBox(width: 8),
+                      Text('返す'),
+                    ],
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MemberBorrowHistory extends StatelessWidget {
+  const _MemberBorrowHistory({
+    required this.communityId,
+    required this.memberUid,
+    required this.currencyCode,
+    required this.precision,
+    required this.onRepayLoan,
+  });
+
+  final String communityId;
+  final String memberUid;
+  final String currencyCode;
+  final int precision;
+  final void Function(PaymentRequest loan, num outstanding) onRepayLoan;
+
+  @override
+  Widget build(BuildContext context) {
+    final borrowQuery = FirebaseFirestore.instance
+        .collection('requests')
+        .doc(communityId)
+        .collection('items')
+        .where('fromUid', isEqualTo: memberUid)
+        .where('toUid', isEqualTo: kCentralBankUid)
+        .where('type', isEqualTo: 'bank_borrow')
+        .orderBy('createdAt', descending: true)
+        .limit(50);
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: borrowQuery.snapshots(),
+      builder: (context, borrowSnapshot) {
+        if (borrowSnapshot.connectionState == ConnectionState.waiting &&
+            !borrowSnapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (borrowSnapshot.hasError) {
+          final err = borrowSnapshot.error;
+          return _CopyableErrorBox(
+            title: '借入履歴を取得できませんでした',
+            details: '借入履歴の取得中にエラーが発生しました: $err',
+            onCopied: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('エラー内容をコピーしました')),
+              );
+            },
+          );
+        }
+
+        final borrowDocs = borrowSnapshot.data?.docs ?? const [];
+        final borrowRequests = <PaymentRequest>[];
+        for (final doc in borrowDocs) {
+          try {
+            borrowRequests.add(
+              PaymentRequest.fromMap(id: doc.id, data: doc.data()),
+            );
+          } catch (e, st) {
+            debugPrint('Failed to parse borrow request ${doc.id}: $e\n$st');
+          }
+        }
+
+        if (borrowRequests.isEmpty) {
+          return Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  '借入履歴',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _kTextMain,
+                  ),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'まだ中央銀行からの借入履歴はありません。',
+                  style: TextStyle(fontSize: 13, color: _kTextSub),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final repayQuery = FirebaseFirestore.instance
+            .collection('requests')
+            .doc(communityId)
+            .collection('items')
+            .where('fromUid', isEqualTo: kCentralBankUid)
+            .where('toUid', isEqualTo: memberUid)
+            .where('type', isEqualTo: 'bank_repay')
+            .orderBy('createdAt', descending: true)
+            .limit(50);
+
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: repayQuery.snapshots(),
+          builder: (context, repaySnapshot) {
+            if (repaySnapshot.connectionState == ConnectionState.waiting &&
+                !repaySnapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (repaySnapshot.hasError) {
+              final err = repaySnapshot.error;
+              return _CopyableErrorBox(
+                title: '返済履歴を取得できませんでした',
+                details: '返済履歴の取得中にエラーが発生しました: $err',
+                onCopied: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('エラー内容をコピーしました')),
+                  );
+                },
+              );
+            }
+
+            final repayDocs = repaySnapshot.data?.docs ?? const [];
+            final repayRequests = <PaymentRequest>[];
+            for (final doc in repayDocs) {
+              try {
+                repayRequests.add(
+                  PaymentRequest.fromMap(id: doc.id, data: doc.data()),
+                );
+              } catch (e, st) {
+                debugPrint('Failed to parse repay request ${doc.id}: $e\n$st');
+              }
+            }
+
+            final loans = _buildLoanDisplays(borrowRequests, repayRequests);
+            final approvedLoans = loans
+                .where((loan) => loan.request.status == 'approved')
+                .toList();
+            final totalOutstanding = approvedLoans.fold<double>(
+              0,
+              (sum, loan) => sum + loan.outstanding,
+            );
+            DateTime? nextDue;
+            for (final loan in approvedLoans) {
+              if (loan.outstanding <= 0) continue;
+              final due = loan.request.expireAt;
+              if (due == null) continue;
+              if (nextDue == null || due.isBefore(nextDue!)) {
+                nextDue = due;
+              }
+            }
+            DateTime? latestBorrowedAt;
+            for (final borrow in borrowRequests) {
+              final created = borrow.createdAt;
+              if (created == null) continue;
+              if (latestBorrowedAt == null || created.isAfter(latestBorrowedAt!)) {
+                latestBorrowedAt = created;
+              }
+            }
+
+            final locale = MaterialLocalizations.of(context);
+            final decimals = _clampPrecision(precision);
+            String formatAmount(num amount) =>
+                amount.toDouble().toStringAsFixed(decimals);
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '借入履歴',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _kTextMain,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _BorrowSummaryCard(
+                  outstandingText:
+                      '${formatAmount(totalOutstanding)} $currencyCode',
+                  nextDueText: nextDue == null
+                      ? '未設定'
+                      : locale.formatMediumDate(nextDue!),
+                  latestBorrowText: latestBorrowedAt == null
+                      ? '不明'
+                      : locale.formatMediumDate(latestBorrowedAt!),
+                ),
+                const SizedBox(height: 12),
+                for (final loan in loans)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _LoanHistoryTile(
+                      loan: loan,
+                      currencyCode: currencyCode,
+                      precision: decimals,
+                      onRepayLoan: onRepayLoan,
+                    ),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  static int _clampPrecision(int precision) {
+    if (precision < 0) return 0;
+    if (precision > 6) return 6;
+    return precision;
+  }
+
+  static List<_LoanDisplay> _buildLoanDisplays(
+    List<PaymentRequest> borrowRequests,
+    List<PaymentRequest> repayRequests,
+  ) {
+    final matchRepayments = <String, double>{};
+    double generalRepaymentPool = 0;
+    for (final repay in repayRequests) {
+      if (repay.status != 'approved') continue;
+      final amount = repay.amount.toDouble();
+      if (amount <= 0) continue;
+      final linked = repay.linkedRequestId;
+      if (linked != null && linked.isNotEmpty) {
+        matchRepayments[linked] = (matchRepayments[linked] ?? 0) + amount;
+      } else {
+        generalRepaymentPool += amount;
+      }
+    }
+
+    final approvedLoans = borrowRequests
+        .where((loan) => loan.status == 'approved')
+        .toList()
+      ..sort((a, b) {
+        final aDue = a.expireAt ?? DateTime(9999, 12, 31);
+        final bDue = b.expireAt ?? DateTime(9999, 12, 31);
+        final dueCmp = aDue.compareTo(bDue);
+        if (dueCmp != 0) return dueCmp;
+        final aCreated =
+            a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final bCreated =
+            b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return aCreated.compareTo(bCreated);
+      });
+
+    final totalRepaid = <String, double>{}..addAll(matchRepayments);
+    var remainingPool = generalRepaymentPool;
+    for (final loan in approvedLoans) {
+      final key = loan.id;
+  final alreadyMatched = totalRepaid[key] ?? 0.0;
+      final remainingForLoan =
+          (loan.amount.toDouble() - alreadyMatched)
+              .clamp(0, double.infinity)
+              .toDouble();
+      if (remainingForLoan <= 0 || remainingPool <= 0) {
+        continue;
+      }
+      final applied = remainingPool >= remainingForLoan
+          ? remainingForLoan
+          : remainingPool;
+      totalRepaid[key] = alreadyMatched + applied;
+      remainingPool -= applied;
+    }
+
+    final result = <_LoanDisplay>[];
+    for (final loan in borrowRequests) {
+      final amount = loan.amount.toDouble();
+      final isApproved = loan.status == 'approved';
+      final repaid = isApproved ? (totalRepaid[loan.id] ?? 0.0) : 0.0;
+      final outstanding = isApproved
+          ? (amount - repaid).clamp(0, double.infinity).toDouble()
+          : (loan.status == 'pending' || loan.status == 'processing')
+              ? amount
+              : 0.0;
+      result.add(
+        _LoanDisplay(
+          request: loan,
+          outstanding: outstanding,
+          repaid: repaid,
+        ),
+      );
+    }
+
+    result.sort((a, b) {
+      final aCreated =
+          a.request.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bCreated =
+          b.request.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bCreated.compareTo(aCreated);
+    });
+
+    return result;
+  }
+}
+
+class _LoanDisplay {
+  const _LoanDisplay({
+    required this.request,
+    required this.outstanding,
+    required this.repaid,
+  });
+
+  final PaymentRequest request;
+  final double outstanding;
+  final double repaid;
+}
+
+class _BorrowSummaryCard extends StatelessWidget {
+  const _BorrowSummaryCard({
+    required this.outstandingText,
+    required this.nextDueText,
+    required this.latestBorrowText,
+  });
+
+  final String outstandingText;
+  final String nextDueText;
+  final String latestBorrowText;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget buildItem(String label, String value) {
+      return Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: _kTextSub,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: _kTextMain,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Row(
+        children: [
+          buildItem('借入残高合計', outstandingText),
+          const SizedBox(width: 16),
+          buildItem('最短返還期限', nextDueText),
+          const SizedBox(width: 16),
+          buildItem('直近の借入日', latestBorrowText),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoanHistoryTile extends StatelessWidget {
+  const _LoanHistoryTile({
+    required this.loan,
+    required this.currencyCode,
+    required this.precision,
+    required this.onRepayLoan,
+  });
+
+  final _LoanDisplay loan;
+  final String currencyCode;
+  final int precision;
+  final void Function(PaymentRequest loan, num outstanding) onRepayLoan;
+
+  @override
+  Widget build(BuildContext context) {
+    final request = loan.request;
+    final locale = MaterialLocalizations.of(context);
+  final createdLabel = request.createdAt == null
+    ? '不明'
+    : locale.formatMediumDate(request.createdAt!);
+    final amountText = _formatAmount(request.amount);
+    final outstandingText = _formatAmount(loan.outstanding);
+    final repaidText = _formatAmount(loan.repaid);
+    final status = request.status;
+    final statusLabel = _statusLabel(status);
+    final statusColor = _statusColor(status);
+  final now = DateTime.now();
+  final isOverdue = request.expireAt != null &&
+    loan.outstanding > 0 &&
+    request.expireAt!.isBefore(now);
+  final dueSoon = request.expireAt != null &&
+    !isOverdue &&
+    loan.outstanding > 0 &&
+    request.expireAt!.difference(now).inDays <= 3;
+    final repayEnabled =
+        status == 'approved' && loan.outstanding > 0.0000001;
+
+    final dueLabel = () {
+  if (request.expireAt == null) return '未設定';
+  final formatted = locale.formatMediumDate(request.expireAt!);
+      if (isOverdue) {
+        return '$formatted (期限超過)';
+      }
+      if (dueSoon) {
+        return '$formatted (まもなく期限)';
+      }
+      return formatted;
+    }();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 10,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '借入金額 $amountText $currencyCode',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: _kTextMain,
+                  ),
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _LoanInfoRow(
+            icon: Icons.schedule_rounded,
+            label: '借入日時',
+            value: createdLabel,
+          ),
+          const SizedBox(height: 6),
+          _LoanInfoRow(
+            icon: Icons.event_available,
+            label: '返還期限',
+            value: dueLabel,
+            valueStyle: TextStyle(
+              fontSize: 13,
+              fontWeight:
+                  (dueSoon || isOverdue) ? FontWeight.bold : FontWeight.normal,
+              color: isOverdue
+                  ? const Color(0xFFEF4444)
+                  : (dueSoon ? _kAccentOrange : _kTextMain),
+            ),
+          ),
+          if (request.memo != null && request.memo!.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _LoanInfoRow(
+              icon: Icons.notes_rounded,
+              label: 'メモ',
+              value: request.memo!,
+            ),
+          ],
+          if (status == 'approved') ...[
+            const SizedBox(height: 6),
+            _LoanInfoRow(
+              icon: Icons.payments_outlined,
+              label: '返済済み',
+              value: '$repaidText $currencyCode',
+            ),
+            const SizedBox(height: 6),
+            _LoanInfoRow(
+              icon: Icons.account_balance_wallet_outlined,
+              label: '未返済残高',
+              value: '$outstandingText $currencyCode',
+              valueStyle: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: loan.outstanding > 0 ? _kMainBlue : _kTextSub,
+              ),
+            ),
+          ],
+          if (repayEnabled) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.icon(
+                onPressed: () => onRepayLoan(request, loan.outstanding),
+                icon: const Icon(Icons.north_east, size: 18),
+                label: const Text('この借入を返す'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatAmount(num amount) =>
+      amount.toDouble().toStringAsFixed(precision);
+
+  static String _statusLabel(String status) {
+    switch (status) {
+      case 'approved':
+        return '承認済み';
+      case 'pending':
+        return '承認待ち';
+      case 'processing':
+        return '処理中';
+      case 'rejected':
+        return '却下';
+      case 'cancelled':
+        return 'キャンセル';
+      case 'expired':
+        return '期限切れ';
+      default:
+        return status;
+    }
+  }
+
+  static Color _statusColor(String status) {
+    switch (status) {
+      case 'approved':
+        return _kSubGreen;
+      case 'pending':
+        return _kMainBlue;
+      case 'processing':
+        return const Color(0xFFF59E0B);
+      case 'rejected':
+      case 'cancelled':
+      case 'expired':
+        return const Color(0xFFEF4444);
+      default:
+        return _kTextSub;
+    }
+  }
+}
+
+class _LoanInfoRow extends StatelessWidget {
+  const _LoanInfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueStyle,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final TextStyle? valueStyle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: _kTextSub),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: _kTextSub,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: valueStyle ??
+                    const TextStyle(fontSize: 13, color: _kTextMain),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BankPendingRequests extends StatelessWidget {
+  const _BankPendingRequests({
+    required this.communityId,
+    required this.currencyCode,
+    required this.processingRequestId,
+    required this.onApprove,
+    required this.onReject,
+    required this.resolveDisplayName,
+    required this.precision,
+    required this.editedDueDates,
+    required this.onDueDateChanged,
+  });
+
+  final String communityId;
+  final String currencyCode;
+  final String? processingRequestId;
+  final void Function(PaymentRequest request) onApprove;
+  final void Function(PaymentRequest request) onReject;
+  final String Function(String? uid) resolveDisplayName;
+  final int precision;
+  final Map<String, DateTime> editedDueDates;
+  final void Function(PaymentRequest request, DateTime? newDueDate)
+      onDueDateChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final query = FirebaseFirestore.instance
+        .collection('requests')
+        .doc(communityId)
+        .collection('items')
+        .where('status', isEqualTo: 'pending')
+        .orderBy('createdAt', descending: true)
+        .limit(30);
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: query.snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          final errText = 'リクエストを取得できませんでした: ${snapshot.error}';
+          return _CopyableErrorBox(
+            title: '中央銀行宛てリクエストの取得に失敗しました',
+            details: errText,
+            onCopied: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('エラーをコピーしました')),
+              );
+            },
+          );
+        }
+
+        final docs = snapshot.data?.docs ?? const [];
+        final requests = <PaymentRequest>[];
+        for (final doc in docs) {
+          try {
+            final data = PaymentRequest.fromMap(id: doc.id, data: doc.data());
+            if (data.fromUid == kCentralBankUid ||
+                data.toUid == kCentralBankUid) {
+              requests.add(data);
+            }
+          } catch (e, st) {
+            debugPrint('Failed to parse payment request ${doc.id}: $e\n$st');
+          }
+        }
+
+        if (requests.isEmpty) {
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            padding: const EdgeInsets.all(20),
+            child: const Text(
+              '現在、中央銀行に対する新しいリクエストはありません。',
+              style: TextStyle(color: _kTextSub, fontSize: 13),
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '中央銀行宛てのリクエスト',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: _kTextMain,
+              ),
+            ),
+            const SizedBox(height: 12),
+            for (final request in requests)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _BankRequestCard(
+                  request: request,
+                  currencyCode: currencyCode,
+                  memberName: _resolveMemberName(request),
+                  precision: precision,
+                  processing: processingRequestId == request.id,
+                  onApprove: () => onApprove(request),
+                  onReject: () => onReject(request),
+                  dueDate: editedDueDates[request.id] ?? request.expireAt,
+                  originalDueDate: request.expireAt,
+                  dueDateEdited: editedDueDates.containsKey(request.id) &&
+                      !_sameDay(editedDueDates[request.id], request.expireAt),
+                  onDueDateChanged: (newDate) =>
+                      onDueDateChanged(request, newDate),
+                  allowDueDateEdit: request.toUid == kCentralBankUid,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _resolveMemberName(PaymentRequest request) {
+    final memberUid =
+        request.fromUid == kCentralBankUid ? request.toUid : request.fromUid;
+    return resolveDisplayName(memberUid);
+  }
+
+  bool _sameDay(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+}
+
+class _BankRequestCard extends StatelessWidget {
+  const _BankRequestCard({
+    required this.request,
+    required this.currencyCode,
+    required this.memberName,
+    required this.onApprove,
+    required this.onReject,
+    required this.precision,
+    this.processing = false,
+    this.dueDate,
+    this.originalDueDate,
+    this.dueDateEdited = false,
+    this.onDueDateChanged,
+    this.allowDueDateEdit = false,
+  });
+
+  final PaymentRequest request;
+  final String currencyCode;
+  final String memberName;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+  final int precision;
+  final bool processing;
+  final DateTime? dueDate;
+  final DateTime? originalDueDate;
+  final bool dueDateEdited;
+  final ValueChanged<DateTime?>? onDueDateChanged;
+  final bool allowDueDateEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBorrow = request.toUid == kCentralBankUid;
+    final typeLabel = isBorrow ? '借入リクエスト' : '返済リクエスト';
+    final createdAt = _formatWalletTimestamp(request.createdAt);
+    final memo = request.memo?.isNotEmpty == true ? request.memo! : 'メモなし';
+    final displayPrecision = precision.clamp(0, 6).toInt();
+    final amountText =
+        request.amount.toDouble().toStringAsFixed(displayPrecision);
+    final locale = MaterialLocalizations.of(context);
+    final effectiveDueDate = dueDate ?? originalDueDate;
+    final dueDateLabel = effectiveDueDate != null
+        ? locale.formatMediumDate(effectiveDueDate)
+        : '未設定';
+
+    Future<void> selectDueDate() async {
+      final now = DateTime.now();
+      final firstDate = DateUtils.dateOnly(now);
+      final base = effectiveDueDate ?? now.add(const Duration(days: 14));
+      final initial = base.isBefore(firstDate) ? firstDate : base;
+      final chosen = await showDatePicker(
+        context: context,
+        initialDate: initial,
+        firstDate: firstDate,
+        lastDate: DateTime(now.year + 5, 12, 31),
+      );
+      if (chosen != null) {
+        onDueDateChanged?.call(DateUtils.dateOnly(chosen));
+      }
+    }
+
+    void resetDueDate() {
+      onDueDateChanged?.call(originalDueDate);
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 12,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: isBorrow
+                    ? _kMainBlue.withOpacity(0.12)
+                    : _kSubGreen.withOpacity(0.12),
+                child: Icon(
+                  isBorrow ? Icons.south_west : Icons.north_east,
+                  color: isBorrow ? _kMainBlue : _kSubGreen,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$memberName の$typeLabel',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: _kTextMain,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '金額: $amountText $currencyCode',
+                      style: const TextStyle(fontSize: 13, color: _kTextMain),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'メモ: $memo',
+                      style: const TextStyle(fontSize: 12, color: _kTextSub),
+                    ),
+                    if (createdAt.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '作成: $createdAt',
+                        style:
+                            const TextStyle(fontSize: 11, color: _kTextSub),
+                      ),
+                    ],
+                    if (isBorrow) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            vertical: 8, horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.event_note,
+                              size: 18,
+                              color: dueDateEdited
+                                  ? _kAccentOrange
+                                  : _kTextSub,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    dueDateEdited
+                                        ? '返還期限 (編集予定)'
+                                        : '返還期限',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: dueDateEdited
+                                          ? FontWeight.w600
+                                          : FontWeight.w500,
+                                      color: dueDateEdited
+                                          ? _kAccentOrange
+                                          : _kTextSub,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    dueDateLabel,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: _kTextMain,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (allowDueDateEdit) ...[
+                              TextButton(
+                                onPressed: processing ? null : selectDueDate,
+                                child: Text(
+                                  effectiveDueDate == null ? '設定' : '変更',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                              if (dueDateEdited &&
+                                  originalDueDate != null) ...[
+                                const SizedBox(width: 4),
+                                TextButton(
+                                  onPressed: processing ? null : resetDueDate,
+                                  child: const Text(
+                                    '元に戻す',
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: processing ? null : onReject,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _kTextSub,
+                    side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text('拒否'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: processing ? null : onApprove,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isBorrow ? _kMainBlue : _kSubGreen,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: processing
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                      : const Text('承認'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
 }
 
 class _BankActionFormResult {
@@ -7225,9 +8863,18 @@ class _MemberCard extends StatelessWidget {
 List<Widget> _buildMemberChips(_SelectableMember member) {
   final chips = <Widget>[
     _InfoChip(
-      text: _roleLabel(member.membership.role),
-      color: _roleColor(member.membership.role),
-      foreground: _roleForeground(member.membership.role),
+      text: _roleLabel(
+        member.membership.role,
+        canManageBank: member.membership.canManageBank,
+      ),
+      color: _roleColor(
+        member.membership.role,
+        canManageBank: member.membership.canManageBank,
+      ),
+      foreground: _roleForeground(
+        member.membership.role,
+        canManageBank: member.membership.canManageBank,
+      ),
       icon: Icons.shield_outlined,
     ),
   ];
@@ -7275,7 +8922,10 @@ List<Widget> _buildMemberChips(_SelectableMember member) {
   return chips;
 }
 
-String _roleLabel(String role) {
+String _roleLabel(String role, {bool canManageBank = false}) {
+  if (canManageBank && role != 'owner' && role != 'admin') {
+    return 'バンク管理者';
+  }
   switch (role) {
     case 'owner':
       return 'オーナー';
@@ -7290,7 +8940,10 @@ String _roleLabel(String role) {
   }
 }
 
-Color _roleColor(String role) {
+Color _roleColor(String role, {bool canManageBank = false}) {
+  if (canManageBank && role != 'owner' && role != 'admin') {
+    return const Color(0xFFD1FAE5);
+  }
   switch (role) {
     case 'owner':
       return const Color(0xFFE0F2FE);
@@ -7305,7 +8958,10 @@ Color _roleColor(String role) {
   }
 }
 
-Color _roleForeground(String role) {
+Color _roleForeground(String role, {bool canManageBank = false}) {
+  if (canManageBank && role != 'owner' && role != 'admin') {
+    return _kSubGreen;
+  }
   switch (role) {
     case 'owner':
       return _kMainBlue;

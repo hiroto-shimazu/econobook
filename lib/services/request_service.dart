@@ -27,6 +27,7 @@ class RequestService {
     DateTime? expireAt,
     required String createdBy,
     String type = 'request',
+    String? linkedRequestId,
   }) async {
     if (amount <= 0) {
       throw ArgumentError('amount must be positive');
@@ -62,9 +63,24 @@ class RequestService {
       createdBy: createdBy,
       visibility: visibility,
       type: type,
+      linkedRequestId: linkedRequestId,
     );
     await docRef.set(request);
   return (await withIndexLinkCopyForService(() => docRef.get())).data()!;
+  }
+
+  Future<void> updateRequestDueDate({
+    required String communityId,
+    required String requestId,
+    required String updatedBy,
+    DateTime? dueDate,
+  }) async {
+    final docRef = refs.paymentRequests(communityId).doc(requestId);
+    await docRef.update({
+      'expireAt': dueDate == null ? FieldValue.delete() : Timestamp.fromDate(dueDate),
+      'dueUpdatedBy': updatedBy,
+      'dueUpdatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<SplitCalculation> createSplitRequests({
@@ -182,6 +198,7 @@ class RequestService {
         visibility: request.visibility,
         requestId: requestId,
         entryType: request.type,
+        enforceSufficientFunds: request.toUid != kCentralBankUid,
       );
     } catch (e) {
       await requestRef.update({

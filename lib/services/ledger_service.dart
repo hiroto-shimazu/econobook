@@ -81,7 +81,8 @@ class LedgerService {
               throw StateError('Sender is not a member of this community');
             }
             final fromBalance = fromSnap.data()?.balance ?? 0;
-            if (enforceSufficientFunds && fromBalance < amount) {
+            final shouldEnforce = !isCentralBankPayer || enforceSufficientFunds;
+            if (shouldEnforce && fromBalance < amount) {
               throw StateError('Insufficient balance');
             }
           }
