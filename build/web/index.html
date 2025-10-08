@@ -1,38 +1,214 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="ja">
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
+  <title>EconoBook — みんなで作る小さな経済圏</title>
+  <meta name="description" content="家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。お手伝いや立て替えも現金を使わず楽しく。掲示板で話し合いながら解決できる、透明なデジタル台帳アプリ。" />
+  <meta name="theme-color" content="#0ea5e9" />
 
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+  <!-- Open Graph / Twitter -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="EconoBook — みんなで作る小さな経済圏" />
+  <meta property="og:description" content="家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。お手伝いや立て替えも現金を使わず楽しく。掲示板で話し合いながら解決できる、透明なデジタル台帳アプリ。" />
+  <meta property="og:url" content="https://econobook.app/" />
+  <meta property="og:image" content="https://econobook.app/ogp.png" />
+  <meta name="twitter:card" content="summary_large_image" />
 
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
-  <base href="/">
+  <!-- Icons -->
+  <link rel="icon" href="/favicon.ico" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/favicon-192.png" />
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
 
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": ["WebSite", "Organization"],
+    "name": "EconoBook",
+    "url": "https://econobook.app/",
+    "logo": "https://econobook.app/logo.png",
+    "sameAs": [
+      "https://x.com/your_account",
+      "https://github.com/your_org_or_repo"
+    ],
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://econobook.app/search?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
 
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="econobook">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
-
-  <title>econobook</title>
-  <link rel="manifest" href="manifest.json">
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Subtle animated gradient background */
+    .bg-grid {
+      background-image: radial-gradient(rgba(14,165,233,0.15) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+    .glass { backdrop-filter: blur(8px); background: rgba(255,255,255,0.7); }
+  </style>
 </head>
-<body>
-  <script src="flutter_bootstrap.js" async></script>
+<body class="min-h-screen bg-white text-slate-900">
+  <!-- Header -->
+  <header class="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="#" class="flex items-center gap-2 font-semibold text-slate-800">
+        <img src="/logo.png" alt="EconoBook" class="h-7 w-7" />
+        <span>EconoBook</span>
+      </a>
+      <nav class="hidden md:flex items-center gap-6 text-sm">
+        <a href="#features" class="hover:text-slate-700">機能</a>
+        <a href="#how" class="hover:text-slate-700">使い方</a>
+        <a href="#faq" class="hover:text-slate-700">FAQ</a>
+      </nav>
+      <div class="flex items-center gap-2">
+        <a href="/app" class="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 transition">アプリを開く</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="relative overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-b from-sky-50 to-white"></div>
+    <div class="absolute inset-0 bg-grid opacity-50"></div>
+    <div class="relative max-w-6xl mx-auto px-4 py-20 md:py-28 grid md:grid-cols-2 gap-10 items-center">
+      <div>
+        <h1 class="text-3xl md:text-5xl font-bold leading-tight tracking-tight text-slate-900">
+          みんなで作る小さな経済圏。
+          <br class="hidden md:block" />
+          <span class="text-sky-600">自分たちの“通貨”で</span>安全に楽しく管理。
+        </h1>
+        <p class="mt-6 text-lg text-slate-600">
+          家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。
+          お手伝いや友達への立て替えなど、現金を返さずに楽しくやり取りできる、透明なデジタル台帳アプリ。
+          もし揉め事があっても、掲示板でみんなに相談して、話し合いながら解決しよう。
+        </p>
+        <div class="mt-8 flex flex-wrap gap-3">
+          <a href="/app" class="px-5 py-3 rounded-xl bg-sky-600 text-white font-medium hover:bg-sky-700 transition">アプリを開く</a>
+          <a href="#features" class="px-5 py-3 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition">機能を見る</a>
+        </div>
+        <div class="mt-6 flex items-center gap-3 text-slate-500 text-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 text-sky-600"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9V5h2v4H9zm0 2h2v4H9v-4z" clip-rule="evenodd"/></svg>
+          <span>プライバシー重視・広告なし</span>
+          <span class="mx-2">•</span>
+          <span>透明な台帳で信頼性</span>
+        </div>
+      </div>
+      <div class="relative">
+        <div class="rounded-2xl shadow-xl ring-1 ring-slate-200 glass">
+          <img src="/screenshot.png" alt="EconoBook App Screenshot" class="rounded-2xl" />
+        </div>
+        <div class="absolute -z-10 -top-10 -right-10 h-40 w-40 bg-sky-200 blur-2xl rounded-full opacity-60"></div>
+        <div class="absolute -z-10 -bottom-12 -left-8 h-52 w-52 bg-indigo-200 blur-3xl rounded-full opacity-60"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features" class="max-w-6xl mx-auto px-4 py-16 md:py-24">
+    <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">EconoBookでできること</h2>
+    <p class="mt-3 text-slate-600">コミュニティ内“中央銀行”のように、発行・回収・貸借をシンプルに。</p>
+    <div class="mt-10 grid md:grid-cols-3 gap-6">
+      <!-- Card 1 -->
+      <div class="p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition">
+        <div class="w-10 h-10 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center mb-4">①</div>
+        <h3 class="font-semibold text-slate-900">自分たちの通貨を発行</h3>
+        <p class="mt-2 text-slate-600">コミュの管理者が安全に発行・回収。流通量やバンク残高も一目で把握。</p>
+      </div>
+      <!-- Card 2 -->
+      <div class="p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition">
+        <div class="w-10 h-10 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center mb-4">②</div>
+        <h3 class="font-semibold text-slate-900">貸し借りはワンタップ</h3>
+        <p class="mt-2 text-slate-600">「借りる」「返す」ボタンでリクエスト送信。台帳は自動で更新され透明。</p>
+      </div>
+      <!-- Card 3 -->
+      <div class="p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition">
+        <div class="w-10 h-10 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center mb-4">③</div>
+        <h3 class="font-semibold text-slate-900">掲示板でフェアに解決</h3>
+        <p class="mt-2 text-slate-600">揉め事は掲示板でみんなに相談。記録が残るから、不安も少なくフェア。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section id="how" class="max-w-6xl mx-auto px-4 py-16 md:py-24">
+    <div class="grid md:grid-cols-2 gap-10 items-center">
+      <div>
+        <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">はじめかた</h2>
+        <ol class="mt-6 space-y-4 text-slate-700">
+          <li class="flex gap-3"><span class="text-sky-600 font-semibold">1.</span>コミュニティを作成し、メンバーを招待。</li>
+          <li class="flex gap-3"><span class="text-sky-600 font-semibold">2.</span>バンク管理者が通貨を発行。ルールや上限を設定。</li>
+          <li class="flex gap-3"><span class="text-sky-600 font-semibold">3.</span>「借りる」「返す」で台帳に記録。掲示板で調整も。</li>
+        </ol>
+        <div class="mt-8">
+          <a href="/app" class="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-900 text-white font-medium hover:bg-slate-800 transition">
+            今すぐ始める
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.69l-3.22-3.22a.75.75 0 111.06-1.06l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 11-1.06-1.06l3.22-3.22H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+          </a>
+        </div>
+      </div>
+      <div class="relative">
+        <div class="aspect-[4/3] rounded-2xl border border-slate-200 shadow-sm bg-gradient-to-br from-sky-50 to-white flex items-center justify-center text-slate-400">
+          <span>Demo / Illustration</span>
+        </div>
+        <div class="absolute -bottom-6 -right-6 bg-white rounded-xl shadow px-4 py-3 border border-slate-200 text-sm text-slate-600">
+          * 実際の通貨ではありません。コミュニティ内ポイントです。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq" class="max-w-4xl mx-auto px-4 py-16 md:py-24">
+    <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">よくある質問</h2>
+    <div class="mt-8 divide-y divide-slate-200 border border-slate-200 rounded-2xl overflow-hidden">
+      <details class="group p-5">
+        <summary class="flex cursor-pointer list-none items-center justify-between font-medium text-slate-800">
+          現金の代わりに使えますか？
+          <span class="transition group-open:rotate-180">⌄</span>
+        </summary>
+        <p class="mt-3 text-slate-600">いいえ。EconoBookはコミュニティ内ポイントです。現金の代替ではなく、家事・手伝い・立て替えなどの小さな貸し借りを楽しく可視化するための仕組みです。</p>
+      </details>
+      <details class="group p-5">
+        <summary class="flex cursor-pointer list-none items-center justify-between font-medium text-slate-800">
+          セキュリティは大丈夫？
+          <span class="transition group-open:rotate-180">⌄</span>
+        </summary>
+        <p class="mt-3 text-slate-600">認証はGoogle/Firebaseを利用。台帳は変更履歴が残り、管理者の権限で発行・回収を制御できます。</p>
+      </details>
+      <details class="group p-5">
+        <summary class="flex cursor-pointer list-none items-center justify-between font-medium text-slate-800">
+          透明性はどうやって担保されますか？
+          <span class="transition group-open:rotate-180">⌄</span>
+        </summary>
+        <p class="mt-3 text-slate-600">全ての貸し借りは台帳に記録。掲示板での議論も残るため、後から確認・合意形成がしやすくなります。</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="border-t border-slate-200">
+    <div class="max-w-6xl mx-auto px-4 py-10 flex flex-col md:flex-row gap-6 items-center justify-between text-sm text-slate-500">
+      <div class="flex items-center gap-2">
+        <img src="/logo.png" alt="EconoBook" class="h-6 w-6" />
+        <span>© <span id="y"></span> EconoBook</span>
+      </div>
+      <div class="flex items-center gap-4">
+        <a href="#" class="hover:text-slate-700">利用規約</a>
+        <a href="#" class="hover:text-slate-700">プライバシー</a>
+        <a href="/app" class="hover:text-slate-700">アプリを開く</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('y').textContent = new Date().getFullYear();
+  </script>
 </body>
 </html>

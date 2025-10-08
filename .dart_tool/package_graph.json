@@ -21,7 +21,7 @@
     },
     {
       "name": "flutter_lints",
-      "version": "6.0.0",
+      "version": "5.0.0",
       "dependencies": [
         "lints"
       ]
@@ -102,11 +102,6 @@
         "sky_engine",
         "vector_math"
       ]
-    },
-    {
-      "name": "lints",
-      "version": "6.0.0",
-      "dependencies": []
     },
     {
       "name": "url_launcher_windows",
@@ -515,6 +510,11 @@
     {
       "name": "vm_service",
       "version": "15.0.2",
+      "dependencies": []
+    },
+    {
+      "name": "lints",
+      "version": "5.1.1",
       "dependencies": []
     }
   ],
