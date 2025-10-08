@@ -1,0 +1,35 @@
+name: Deploy Flutter Web to Firebase Hosting (dev live)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.0"
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build Flutter Web (dev)
+        run: |
+          flutter build web --release --dart-define=FLAVOR=dev --output build/web/app
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: "${{ secrets.GITHUB_TOKEN }}"
+          firebaseServiceAccount: "${{ secrets.FIREBASE_SERVICE_ACCOUNT_ECONOBOOK_DEV }}"
+          projectId: "econobook-dev-f4c0d"
+          channelId: ${{ github.event_name == 'pull_request' && format('preview-{0}', github.head_ref) || 'live' }}
