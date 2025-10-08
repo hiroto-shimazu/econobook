@@ -5,6 +5,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch: {}   # 手動実行も許可
 
 jobs:
   build-and-deploy:
@@ -14,10 +15,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Flutter のチャンネルを stable にして最新を取得（Dart ≥3.6対応）
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.24.0"
+          channel: stable   # ← flutter-version を削除して、最新安定版を使用
 
       - name: Flutter pub get
         run: flutter pub get
