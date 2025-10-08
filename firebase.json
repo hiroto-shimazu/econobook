@@ -13,4 +13,11 @@
     "storage": { "host": "127.0.0.1", "port": 9199 },
     "singleProjectMode": true
   }
+
+  ,"hosting": {
+    "site": "econobook-dev-f4c0d",
+    "public": "build/web",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }]
+  }
 }
