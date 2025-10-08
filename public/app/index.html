@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--
+      If you are serving your web app in a path other than the root,
+      change the href value below to reflect the base path you are serving from.
+    -->
+    <base href="/app/" />
+
+    <meta charset="UTF-8" />
+    <meta content="IE=Edge" http-equiv="X-UA-Compatible" />
+    <meta name="description" content="EconoBook web app" />
+    <meta name="generator" content="Flutter" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EconoBook</title>
+
+    <link rel="manifest" href="manifest.json" />
+    <link rel="icon" href="favicon.png" />
+
+    <script>
+      window.addEventListener('load', function () {
+        _flutter.loader
+          .loadEntrypoint({
+            serviceWorker: {
+              serviceWorkerVersion: null,
+            },
+          })
+          .then(function (engineInitializer) {
+            return engineInitializer.initializeEngine();
+          })
+          .then(function (appRunner) {
+            return appRunner.runApp();
+          });
+      });
+    </script>
+  </head>
+  <body>
+    <script src="flutter.js" defer></script>
+  </body>
+</html>

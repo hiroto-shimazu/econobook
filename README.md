@@ -647,6 +647,7 @@ news/{cid}/{postId}
 ---
 
 ## 開発メモ（Devモード）
+- Firebase Hosting で Flutter Web を `/app` 配下に配置する場合は、`public/app/index.html` を生成したうえで `firebase.json` の `rewrites` に `/app -> /app/index.html` を含めること。こうすると `https://econobook.app/app` 直アクセス時でも Firebase の 404 が表示されません。
 - Firestore Emulator を利用する場合は、以下で起動・永続化：
 
   ```bash
