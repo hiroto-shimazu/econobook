@@ -5,32 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <title>EconoBook — みんなで作る小さな経済圏</title>
-  <meta name="description" content="家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。お手伝いや立て替えも現金を使わず楽しく。掲示板で話し合いながら解決できる、透明なデジタル台帳アプリ。" />
+  <meta name="description" content="家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。お手伝いや立て替えも現金を使わず楽しく。掲示板で話し合いながら解決できる、透明なデジタル台帳アプリ." />
   <meta name="theme-color" content="#0ea5e9" />
 
-  <!-- Open Graph / Twitter -->
-  <meta property="og:type" content="website" />
+  <!-- Open Graph / Twitter --><meta property="og:type" content="website" />
   <meta property="og:title" content="EconoBook — みんなで作る小さな経済圏" />
-  <meta property="og:description" content="家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。お手伝いや立て替えも現金を使わず楽しく。掲示板で話し合いながら解決できる、透明なデジタル台帳アプリ。" />
+  <meta property="og:description" content="家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。お手伝いや立て替えも現金を使わず楽しく。掲示板で話し合いながら解決できる、透明なデジタル台帳アプリ." />
   <meta property="og:url" content="https://econobook.app/" />
-  <meta property="og:image" content="https://econobook.app/ogp.png" />
+  <meta property="og:image" content="https://placehold.co/1200x630/0D274A/ffffff?text=EconoBook" />
   <meta name="twitter:card" content="summary_large_image" />
 
-  <!-- Icons -->
-  <link rel="icon" href="/favicon.ico" />
-  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/favicon-192.png" />
-  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-  <link rel="manifest" href="/site.webmanifest" />
-
-  <!-- Structured Data -->
-  <script type="application/ld+json">
+  <!-- Icons (よりモダンなSVGアイコンを検討) --><link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🪙</text></svg>">
+  
+  <!-- Structured Data --><script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": ["WebSite", "Organization"],
     "name": "EconoBook",
     "url": "https://econobook.app/",
-    "logo": "https://econobook.app/logo.png",
+    "logo": "https://placehold.co/200x200/0D274A/ffffff?text=E",
     "sameAs": [
       "https://x.com/your_account",
       "https://github.com/your_org_or_repo"
@@ -43,175 +36,243 @@
   }
   </script>
 
-  <!-- Tailwind CSS (CDN) -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS (CDN) & Custom Styles --><script src="https://cdn.tailwindcss.com"></script>
   <style>
-    /* Subtle animated gradient background */
-    .bg-grid {
-      background-image: radial-gradient(rgba(14,165,233,0.15) 1px, transparent 1px);
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+    body {
+      font-family: 'Poppins', sans-serif;
+    }
+    .bg-gradient-hero {
+      background: linear-gradient(to bottom, #0D274A 0%, #153B60 100%);
+    }
+    .bg-grid-dark {
+      background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1px);
       background-size: 20px 20px;
     }
-    .glass { backdrop-filter: blur(8px); background: rgba(255,255,255,0.7); }
+    .glass-dark { 
+      backdrop-filter: blur(12px); 
+      background: rgba(255,255,255,0.1); 
+      -webkit-backdrop-filter: blur(12px); 
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    /* スムーズなスクロール */
+    html {
+      scroll-behavior: smooth;
+    }
   </style>
 </head>
-<body class="min-h-screen bg-white text-slate-900">
-  <!-- Header -->
-  <header class="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-slate-200">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-      <a href="#" class="flex items-center gap-2 font-semibold text-slate-800">
-        <img src="/logo.png" alt="EconoBook" class="h-7 w-7" />
-        <span>EconoBook</span>
+<body class="min-h-screen bg-slate-900 text-slate-100 antialiased">
+  <!-- Header --><header class="sticky top-0 z-30 bg-slate-900/80 backdrop-blur-lg border-b border-slate-700/50">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
+      <a href="#" class="flex items-center gap-2 font-bold text-sky-400">
+        <svg class="h-8 w-8" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.795 2.104c.85.183 1.653-.162 2.048-.906v-4.82c-.37-.543-1.074-.954-1.874-.954H9.75v-1.5h.375a.75.75 0 01.75.75v.75m4.5-10.5h1.5m-1.5 0a2.25 2.25 0 01-2.25 2.25H9.75A2.25 2.25 0 017.5 9.75v-.916c0-1.18.91-2.14 2.036-2.203 1.157-.063 2.18-.847 2.652-1.715a.75.75 0 011.086-.112l.092.094ZM12 10.5h.008v.008H12V10.5zm.375 0 a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+        </svg>
+        <span class="text-xl">EconoBook</span>
       </a>
-      <nav class="hidden md:flex items-center gap-6 text-sm">
-        <a href="#features" class="hover:text-slate-700">機能</a>
-        <a href="#how" class="hover:text-slate-700">使い方</a>
-        <a href="#faq" class="hover:text-slate-700">FAQ</a>
+      <nav class="hidden md:flex items-center gap-8 text-sm font-medium">
+        <a href="#features" class="text-slate-300 hover:text-sky-400 transition-colors duration-200">機能</a>
+        <a href="#how" class="text-slate-300 hover:text-sky-400 transition-colors duration-200">使い方</a>
+        <a href="#faq" class="text-slate-300 hover:text-sky-400 transition-colors duration-200">FAQ</a>
       </nav>
       <div class="flex items-center gap-2">
-        <a href="/app/" class="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 transition">アプリを開く</a>
+        <a href="/app/" class="px-5 py-2.5 rounded-full bg-sky-600 text-white text-sm font-semibold hover:bg-sky-700 transition-all duration-300 shadow-lg hover:shadow-sky-500/30 transform hover:-translate-y-0.5">アプリを開く</a>
       </div>
     </div>
   </header>
 
-  <!-- Hero -->
-  <section class="relative overflow-hidden">
-    <div class="absolute inset-0 bg-gradient-to-b from-sky-50 to-white"></div>
-    <div class="absolute inset-0 bg-grid opacity-50"></div>
-    <div class="relative max-w-6xl mx-auto px-4 py-20 md:py-28 grid md:grid-cols-2 gap-10 items-center">
-      <div>
-        <h1 class="text-3xl md:text-5xl font-bold leading-tight tracking-tight text-slate-900">
-          みんなで作る<br class="hidden md:block" />
-          小さな経済圏。
-          <br class="hidden md:block" />
-          <span class="text-sky-600">自分たちの“通貨”で</span>
-          <br class="hidden md:block" />
-          安全に楽しく管理。
-        </h1>
-        <p class="mt-6 text-lg text-slate-600">
-          家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。
-          お手伝いや友達への立て替えなど、現金を返さずに楽しくやり取りできる、透明なデジタル台帳アプリ。
-          もし揉め事があっても、掲示板でみんなに相談して、話し合いながら解決しよう。
-        </p>
-        <div class="mt-8 flex flex-wrap gap-3">
-          <a href="/app/" class="px-5 py-3 rounded-xl bg-sky-600 text-white font-medium hover:bg-sky-700 transition">アプリを開く</a>
-          <a href="#features" class="px-5 py-3 rounded-xl border border-slate-300 text-slate-700 font-medium hover:bg-slate-50 transition">機能を見る</a>
+  <!-- Main Content --><main>
+    <!-- Hero Section --><section class="relative overflow-hidden bg-gradient-hero">
+      <div class="absolute inset-0 bg-grid-dark opacity-30"></div>
+      <div class="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-32 grid md:grid-cols-2 gap-12 items-center">
+        <div class="text-center md:text-left">
+          <h1 class="text-4xl md:text-6xl font-extrabold leading-tight tracking-tight text-white animate-fade-in-up">
+            みんなで作る<br class="hidden md:block" />
+            小さな経済圏。
+            <br />
+            <span class="text-sky-400">自分たちの“通貨”で</span>
+            <br class="hidden md:block" />
+            安全に楽しく管理。
+          </h1>
+          <p class="mt-8 text-lg text-slate-300 max-w-xl mx-auto md:mx-0 animate-fade-in-up delay-200">
+            家族・友人・学生コミュニティの小さな貸し借りを、自分たちの“通貨”で安全に管理。
+            お手伝いや友達への立て替えなど、現金を返さず楽しくやり取りできる、透明なデジタル台帳アプリ。
+            もし揉め事があっても、掲示板でみんなに相談して、話し合いながら解決しよう。
+          </p>
+          <div class="mt-10 flex flex-wrap justify-center md:justify-start gap-4 animate-fade-in-up delay-400">
+            <a href="/app/" class="px-7 py-3.5 rounded-full bg-sky-600 text-white font-bold hover:bg-sky-700 transition transform hover:scale-105 shadow-lg hover:shadow-sky-500/40">今すぐ始める</a>
+            <a href="#features" class="px-7 py-3.5 rounded-full border border-slate-500 text-slate-200 font-medium hover:bg-slate-700 transition transform hover:scale-105">機能を見る</a>
+          </div>
+          <div class="mt-8 flex items-center justify-center md:justify-start gap-4 text-slate-400 text-sm animate-fade-in-up delay-600">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-sky-400"><path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clip-rule="evenodd" /></svg>
+            <span>プライバシー重視・広告なし</span>
+            <span class="mx-1">•</span>
+            <span>透明な台帳で信頼性</span>
+          </div>
         </div>
-        <div class="mt-6 flex items-center gap-3 text-slate-500 text-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 text-sky-600"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9V5h2v4H9zm0 2h2v4H9v-4z" clip-rule="evenodd"/></svg>
-          <span>プライバシー重視・広告なし</span>
-          <span class="mx-2">•</span>
-          <span>透明な台帳で信頼性</span>
+        <div class="relative flex justify-center md:justify-end animate-fade-in-right delay-300">
+          <div class="rounded-3xl shadow-2xl glass-dark p-3 transform rotate-3 hover:rotate-0 transition-transform duration-500">
+            <img src="https://placehold.co/650x480/0d274a/e0f2fe?text=EconoBook+App" alt="EconoBook App Screenshot" class="rounded-2xl border border-slate-700" />
+          </div>
+          <div class="absolute -z-10 -top-16 -right-16 h-48 w-48 bg-sky-500/20 blur-3xl rounded-full opacity-60 animate-blob"></div>
+          <div class="absolute -z-10 -bottom-20 -left-12 h-64 w-64 bg-indigo-500/20 blur-3xl rounded-full opacity-60 animate-blob animation-delay-2000"></div>
         </div>
       </div>
-      <div class="relative">
-        <div class="rounded-2xl shadow-xl ring-1 ring-slate-200 glass">
-          <img src="/screenshot.png" alt="EconoBook App Screenshot" class="rounded-2xl" />
-        </div>
-        <div class="absolute -z-10 -top-10 -right-10 h-40 w-40 bg-sky-200 blur-2xl rounded-full opacity-60"></div>
-        <div class="absolute -z-10 -bottom-12 -left-8 h-52 w-52 bg-indigo-200 blur-3xl rounded-full opacity-60"></div>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Features -->
-  <section id="features" class="max-w-6xl mx-auto px-4 py-16 md:py-24">
-    <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">EconoBookでできること</h2>
-    <p class="mt-3 text-slate-600">コミュニティ内“中央銀行”のように、発行・回収・貸借をシンプルに。</p>
-    <div class="mt-10 grid md:grid-cols-3 gap-6">
-      <!-- Card 1 -->
-      <div class="p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition">
-        <div class="w-10 h-10 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center mb-4">①</div>
-        <h3 class="font-semibold text-slate-900">自分たちの通貨を発行</h3>
-        <p class="mt-2 text-slate-600">コミュの管理者が安全に発行・回収。流通量やバンク残高も一目で把握。</p>
-      </div>
-      <!-- Card 2 -->
-      <div class="p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition">
-        <div class="w-10 h-10 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center mb-4">②</div>
-        <h3 class="font-semibold text-slate-900">貸し借りはワンタップ</h3>
-        <p class="mt-2 text-slate-600">「借りる」「返す」ボタンでリクエスト送信。台帳は自動で更新され透明。</p>
-      </div>
-      <!-- Card 3 -->
-      <div class="p-6 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition">
-        <div class="w-10 h-10 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center mb-4">③</div>
-        <h3 class="font-semibold text-slate-900">掲示板でフェアに解決</h3>
-        <p class="mt-2 text-slate-600">揉め事は掲示板でみんなに相談。記録が残るから、不安も少なくフェア。</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- How it works -->
-  <section id="how" class="max-w-6xl mx-auto px-4 py-16 md:py-24">
-    <div class="grid md:grid-cols-2 gap-10 items-center">
-      <div>
-        <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">はじめかた</h2>
-        <ol class="mt-6 space-y-4 text-slate-700">
-          <li class="flex gap-3"><span class="text-sky-600 font-semibold">1.</span>コミュニティを作成し、メンバーを招待。</li>
-          <li class="flex gap-3"><span class="text-sky-600 font-semibold">2.</span>バンク管理者が通貨を発行。ルールや上限を設定。</li>
-          <li class="flex gap-3"><span class="text-sky-600 font-semibold">3.</span>「借りる」「返す」で台帳に記録。掲示板で調整も。</li>
-        </ol>
-        <div class="mt-8">
-          <a href="/app/" class="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-900 text-white font-medium hover:bg-slate-800 transition">
-            今すぐ始める
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.69l-3.22-3.22a.75.75 0 111.06-1.06l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 11-1.06-1.06l3.22-3.22H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
-          </a>
+    <!-- Features Section --><section id="features" class="bg-slate-900 py-16 md:py-28">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center">
+            <h2 class="text-3xl md:text-4xl font-extrabold tracking-tight text-white">EconoBookでできること</h2>
+            <p class="mt-4 text-lg text-slate-400 max-w-3xl mx-auto">コミュニティ内“中央銀行”のように、発行・回収・貸借をシンプルに。</p>
+        </div>
+        <div class="mt-16 grid md:grid-cols-3 gap-8">
+          <!-- Feature Card 1 --><div class="p-8 rounded-2xl bg-slate-800 border border-slate-700 shadow-xl hover:shadow-sky-500/20 hover:-translate-y-2 transition-all duration-300 group">
+            <div class="w-14 h-14 rounded-full bg-sky-600 text-white flex items-center justify-center mb-6 text-2xl font-bold group-hover:rotate-6 transition-transform duration-300">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-7 h-7">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.795 2.104c.85.183 1.653-.162 2.048-.906v-4.82c-.37-.543-1.074-.954-1.874-.954H9.75v-1.5h.375a.75.75 0 01.75.75v.75m4.5-10.5h1.5m-1.5 0a2.25 2.25 0 01-2.25 2.25H9.75A2.25 2.25 0 017.5 9.75v-.916c0-1.18.91-2.14 2.036-2.203 1.157-.063 2.18-.847 2.652-1.715a.75.75 0 011.086-.112l.092.094ZM12 10.5h.008v.008H12V10.5zm.375 0 a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
+            </div>
+            <h3 class="font-bold text-xl text-white">自分たちの通貨を発行</h3>
+            <p class="mt-3 text-slate-300 text-base">コミュの管理者が安全に発行・回収。流通量やバンク残高も一目で把握。</p>
+          </div>
+          <!-- Feature Card 2 --><div class="p-8 rounded-2xl bg-slate-800 border border-slate-700 shadow-xl hover:shadow-sky-500/20 hover:-translate-y-2 transition-all duration-300 group">
+            <div class="w-14 h-14 rounded-full bg-sky-600 text-white flex items-center justify-center mb-6 text-2xl font-bold group-hover:rotate-6 transition-transform duration-300">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-7 h-7">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m-4.5 7.5h15a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v13.5a2.25 2.25 0 002.25 2.25zM15 12H9m12 0a2.25 2.25 0 00-2.25-2.25H3.75A2.25 2.25 0 001.5 12v6.75a2.25 2.25 0 002.25 2.25h15a2.25 2.25 0 002.25-2.25V12z" />
+              </svg>
+            </div>
+            <h3 class="font-bold text-xl text-white">貸し借りはワンタップ</h3>
+            <p class="mt-3 text-slate-300 text-base">「借りる」「返す」ボタンでリクエスト送信。台帳は自動で更新され透明。</p>
+          </div>
+          <!-- Feature Card 3 --><div class="p-8 rounded-2xl bg-slate-800 border border-slate-700 shadow-xl hover:shadow-sky-500/20 hover:-translate-y-2 transition-all duration-300 group">
+            <div class="w-14 h-14 rounded-full bg-sky-600 text-white flex items-center justify-center mb-6 text-2xl font-bold group-hover:rotate-6 transition-transform duration-300">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-7 h-7">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H16.5m2.25 6.75a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.106l-1.742-.58a2.25 2.25 0 01-1.176-.803L15.145 5.59a2.25 2.25 0 00-2.106-1.106H12a2.25 2.25 0 00-2.106 1.106L7.672 7.182a2.25 2.25 0 01-1.176.803l-1.743.581c-.501.14-.852.59-.852 1.106v1.372c0 .516.351.966.852 1.106l1.743.581a2.25 2.25 0 001.176.803L12 17.25M12 17.25a2.25 2.25 0 002.25 2.25h2.25c1.15 0 2.09-.916 2.246-2.067l.3-.442c.423-.621-.564-1.423-1.295-.964l-.328.194a2.25 2.25 0 01-2.25.132 2.25 2.25 0 00-1.637 1.34L12 17.25z" />
+              </svg>
+            </div>
+            <h3 class="font-bold text-xl text-white">掲示板でフェアに解決</h3>
+            <p class="mt-3 text-slate-300 text-base">揉め事は掲示板でみんなに相談。記録が残るから、不安も少なくフェア。</p>
+          </div>
         </div>
       </div>
-      <div class="relative">
-        <div class="aspect-[4/3] rounded-2xl border border-slate-200 shadow-sm bg-gradient-to-br from-sky-50 to-white flex items-center justify-center text-slate-400">
-          <span>Demo / Illustration</span>
-        </div>
-        <div class="absolute -bottom-6 -right-6 bg-white rounded-xl shadow px-4 py-3 border border-slate-200 text-sm text-slate-600">
-          * 実際の通貨ではありません。コミュニティ内ポイントです。
+    </section>
+
+    <!-- How it works Section --><section id="how" class="bg-slate-900 py-16 md:py-28">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="grid md:grid-cols-2 gap-12 items-center">
+          <div>
+            <h2 class="text-3xl md:text-4xl font-extrabold tracking-tight text-white">はじめかた</h2>
+            <ol class="mt-8 space-y-5 text-slate-300 text-lg">
+              <li class="flex items-start gap-4">
+                <span class="flex-shrink-0 w-8 h-8 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold">1</span>
+                <span>コミュニティを作成し、メンバーを招待。</span>
+              </li>
+              <li class="flex items-start gap-4">
+                <span class="flex-shrink-0 w-8 h-8 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold">2</span>
+                <span>バンク管理者が通貨を発行。ルールや上限を設定。</span>
+              </li>
+              <li class="flex items-start gap-4">
+                <span class="flex-shrink-0 w-8 h-8 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold">3</span>
+                <span>「借りる」「返す」で台帳に記録。掲示板で調整も。</span>
+              </li>
+            </ol>
+            <div class="mt-10">
+              <a href="/app/" class="inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-slate-100 text-slate-900 font-bold hover:bg-slate-200 transition shadow-lg hover:shadow-slate-500/20 transform hover:-translate-y-0.5">
+                今すぐ始める
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5"><path fill-rule="evenodd" d="M3 10a.75.75 0 01.75-.75h10.69l-3.22-3.22a.75.75 0 111.06-1.06l4.5 4.5a.75.75 0 010 1.06l-4.5 4.5a.75.75 0 11-1.06-1.06l3.22-3.22H3.75A.75.75 0 013 10z" clip-rule="evenodd"/></svg>
+              </a>
+            </div>
+          </div>
+          <div class="relative flex justify-center md:justify-start">
+            <div class="aspect-[4/3] w-full max-w-md rounded-3xl border border-slate-700 shadow-xl bg-slate-800 flex items-center justify-center p-6 text-slate-400">
+              <!-- イラストレーション画像はよりスタイリッシュなものに置き換え --><img src="https://placehold.co/550x410/0d274a/a5f3fc?text=How+it+works+Illustration" alt="How it works illustration" class="rounded-2xl w-full h-full object-cover border border-slate-600">
+            </div>
+            <div class="absolute -bottom-8 -right-4 md:-right-8 bg-slate-800 rounded-xl shadow-lg px-5 py-3 border border-slate-700 text-sm text-slate-400">
+              * 実際の通貨ではありません。コミュニティ内ポイントです。
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- FAQ -->
-  <section id="faq" class="max-w-4xl mx-auto px-4 py-16 md:py-24">
-    <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-slate-900">よくある質問</h2>
-    <div class="mt-8 divide-y divide-slate-200 border border-slate-200 rounded-2xl overflow-hidden">
-      <details class="group p-5">
-        <summary class="flex cursor-pointer list-none items-center justify-between font-medium text-slate-800">
-          現金の代わりに使えますか？
-          <span class="transition group-open:rotate-180">⌄</span>
-        </summary>
-        <p class="mt-3 text-slate-600">いいえ。EconoBookはコミュニティ内ポイントです。現金の代替ではなく、家事・手伝い・立て替えなどの小さな貸し借りを楽しく可視化するための仕組みです。</p>
-      </details>
-      <details class="group p-5">
-        <summary class="flex cursor-pointer list-none items-center justify-between font-medium text-slate-800">
-          セキュリティは大丈夫？
-          <span class="transition group-open:rotate-180">⌄</span>
-        </summary>
-        <p class="mt-3 text-slate-600">認証はGoogle/Firebaseを利用。台帳は変更履歴が残り、管理者の権限で発行・回収を制御できます。</p>
-      </details>
-      <details class="group p-5">
-        <summary class="flex cursor-pointer list-none items-center justify-between font-medium text-slate-800">
-          透明性はどうやって担保されますか？
-          <span class="transition group-open:rotate-180">⌄</span>
-        </summary>
-        <p class="mt-3 text-slate-600">全ての貸し借りは台帳に記録。掲示板での議論も残るため、後から確認・合意形成がしやすくなります。</p>
-      </details>
-    </div>
-  </section>
+    <!-- FAQ Section --><section id="faq" class="bg-slate-900 py-16 md:py-28">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center">
+                <h2 class="text-3xl md:text-4xl font-extrabold tracking-tight text-white">よくある質問</h2>
+            </div>
+            <div class="mt-12 space-y-6">
+              <details class="group p-6 bg-slate-800 rounded-xl border border-slate-700 shadow-lg cursor-pointer transition-all duration-300 hover:shadow-sky-500/10">
+                <summary class="flex list-none items-center justify-between font-semibold text-lg text-white">
+                  現金の代わりに使えますか？
+                  <span class="transition group-open:rotate-180 text-sky-400">
+                    <svg fill="none" height="24" shape-rendering="geometricPrecision" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
+                  </span>
+                </summary>
+                <p class="mt-4 text-slate-300 leading-relaxed">いいえ。EconoBookはコミュニティ内ポイントです。現金の代替ではなく、家事・手伝い・立て替えなどの小さな貸し借りを楽しく可視化するための仕組みです。</p>
+              </details>
+              <details class="group p-6 bg-slate-800 rounded-xl border border-slate-700 shadow-lg cursor-pointer transition-all duration-300 hover:shadow-sky-500/10">
+                <summary class="flex list-none items-center justify-between font-semibold text-lg text-white">
+                  セキュリティは大丈夫？
+                  <span class="transition group-open:rotate-180 text-sky-400">
+                    <svg fill="none" height="24" shape-rendering="geometricPrecision" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
+                  </span>
+                </summary>
+                <p class="mt-4 text-slate-300 leading-relaxed">認証はGoogle/Firebaseを利用。台帳は変更履歴が残り、管理者の権限で発行・回収を制御できます。</p>
+              </details>
+              <details class="group p-6 bg-slate-800 rounded-xl border border-slate-700 shadow-lg cursor-pointer transition-all duration-300 hover:shadow-sky-500/10">
+                <summary class="flex list-none items-center justify-between font-semibold text-lg text-white">
+                  透明性はどうやって担保されますか？
+                  <span class="transition group-open:rotate-180 text-sky-400">
+                    <svg fill="none" height="24" shape-rendering="geometricPrecision" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="24"><path d="M6 9l6 6 6-6"></path></svg>
+                  </span>
+                </summary>
+                <p class="mt-4 text-slate-300 leading-relaxed">全ての貸し借りは台帳に記録。掲示板での議論も残るため、後から確認・合意形成がしやすくなります。</p>
+              </details>
+            </div>
+        </div>
+    </section>
+  </main>
 
-  <!-- Footer -->
-  <footer class="border-t border-slate-200">
-    <div class="max-w-6xl mx-auto px-4 py-10 flex flex-col md:flex-row gap-6 items-center justify-between text-sm text-slate-500">
+  <!-- Footer --><footer class="border-t border-slate-800 bg-slate-950">
+    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex flex-col md:flex-row gap-6 items-center justify-between text-sm text-slate-400">
       <div class="flex items-center gap-2">
-        <img src="/logo.png" alt="EconoBook" class="h-6 w-6" />
-        <span>© <span id="y"></span> EconoBook</span>
+         <svg class="h-6 w-6 text-sky-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.795 2.104c.85.183 1.653-.162 2.048-.906v-4.82c-.37-.543-1.074-.954-1.874-.954H9.75v-1.5h.375a.75.75 0 01.75.75v.75m4.5-10.5h1.5m-1.5 0a2.25 2.25 0 01-2.25 2.25H9.75A2.25 2.25 0 017.5 9.75v-.916c0-1.18.91-2.14 2.036-2.203 1.157-.063 2.18-.847 2.652-1.715a.75.75 0 011.086-.112l.092.094ZM12 10.5h.008v.008H12V10.5zm.375 0 a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+        </svg>
+        <span>© <span id="current-year"></span> EconoBook</span>
       </div>
-      <div class="flex items-center gap-4">
-        <a href="#" class="hover:text-slate-700">利用規約</a>
-        <a href="#" class="hover:text-slate-700">プライバシー</a>
-        <a href="/app" class="hover:text-slate-700">アプリを開く</a>
+      <div class="flex items-center gap-6">
+        <a href="#" class="hover:text-sky-400 transition-colors duration-200">利用規約</a>
+        <a href="#" class="hover:text-sky-400 transition-colors duration-200">プライバシー</a>
+        <a href="/app" class="hover:text-sky-400 transition-colors duration-200">アプリを開く</a>
       </div>
     </div>
   </footer>
 
   <script>
-    document.getElementById('y').textContent = new Date().getFullYear();
+    document.getElementById('current-year').textContent = new Date().getFullYear();
+  </script>
+  <!-- Optional: Simple Intersection Observer for scroll animations (not fully implemented here, just placeholder for concept) --><script>
+    const observerOptions = {
+      root: null,
+      rootMargin: '0px',
+      threshold: 0.1
+    };
+
+    const observer = new IntersectionObserver((entries, observer) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('animate-fade-in-up'); // or other animation classes
+          observer.unobserve(entry.target);
+        }
+      });
+    }, observerOptions);
+
+    // Apply to elements you want to animate on scroll
+    // document.querySelectorAll('.animate-on-scroll').forEach(el => {
+    //   observer.observe(el);
+    // });
   </script>
 </body>
 </html>
