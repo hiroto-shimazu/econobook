@@ -8,6 +8,9 @@ import '../models/community.dart';
 import '../services/community_service.dart';
 import '../services/ledger_service.dart';
 import '../services/request_service.dart';
+import '../utils/error_formatter.dart';
+import '../utils/error_normalizer.dart';
+import '../utils/error_snackbar.dart';
 import '../widgets/bank_panels.dart';
 
 class CentralBankScreen extends StatefulWidget {
@@ -445,8 +448,92 @@ class _CentralBankScreenState extends State<CentralBankScreen> {
           _showActionSuccess('贈与しました', currency, result.amount);
           break;
       }
-    } catch (e) {
-      _showSnack('${config.label}に失敗しました: $e');
+    } catch (e, st) {
+      // Debug: print normalized error details to help diagnose boxed JS errors
+      final normalized = normalizeError(e);
+      debugPrint('NORMALIZED_ERROR: message=${normalized.message} error=${normalized.error} stack=${normalized.stackTrace} raw=${normalized.raw}');
+
+      // Build an operation context if available so that boxed Web errors
+      // still carry the transfer operation identifiers for debugging.
+      String? opCtx;
+      try {
+        final opParts = <String>[];
+        opParts.add('community=${widget.communityId}');
+        // We don't have local access to the last input result here, but the
+        // ledger service will have thrown with a message containing idempotency
+        // when applicable. Include the normalized raw as fallback to capture
+        // any id/key info.
+        opParts.add('actor=${widget.user.uid}');
+        opCtx = opParts.join(' ');
+      } catch (_) {
+        opCtx = null;
+      }
+
+      // Force show a debug dialog with raw error content. Schedule it for the
+      // next frame and use the root navigator so it renders even if other
+      // overlays (e.g. bottom sheets) are still tearing down.
+      if (mounted) {
+      // Schedule debug dialog display on next frame to avoid context issues
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          showDialog<void>(
+            context: context,
+            useRootNavigator: true,
+            builder: (ctx) {
+              final size = MediaQuery.of(ctx).size;
+              return AlertDialog(
+                    title: const Text('デバッグ: Raw Error'),
+                    content: SizedBox(
+                      width: size.width * 0.9,
+                      height: size.height * 0.8,
+                      child: SingleChildScrollView(
+                        child: SelectableText(
+                          'Operation context: ${opCtx ?? 'unknown'}\n'
+                          'Error object: ${e.runtimeType}\n'
+                          'Error toString: ${e.toString()}\n'
+                          'Normalized message: ${normalized.message}\n'
+                          'Normalized raw: ${normalized.raw}\n'
+                          'Stack: ${st.toString()}',
+                        ),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('閉じる'),
+                      ),
+                    ],
+                  );
+            },
+          );
+        });
+      }
+      }
+
+      final formatted = formatError(e, st);
+      final heading = '${config.label}に失敗しました';
+      // If we have operation context, append it to the raw/details so the
+      // copyable snack and detail dialog include it in a structured way.
+      FormattedError formattedWithCtx = formatted;
+      if (opCtx != null && opCtx.isNotEmpty) {
+        final combinedRaw = StringBuffer();
+        if (formatted.raw != null && formatted.raw!.isNotEmpty) {
+          combinedRaw.writeln(formatted.raw);
+          combinedRaw.writeln();
+        }
+        combinedRaw.writeln('Operation: $opCtx');
+        formattedWithCtx = FormattedError(
+          message: formatted.message,
+          stackTrace: formatted.stackTrace,
+          raw: combinedRaw.toString(),
+        );
+      }
+      showCopyableErrorSnack(
+        context: context,
+        heading: heading,
+        error: formattedWithCtx,
+      );
     } finally {
       if (mounted) {
         setState(() => _pendingActions.remove(type));

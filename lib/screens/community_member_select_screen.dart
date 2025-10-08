@@ -25,6 +25,8 @@ import '../constants/community.dart';
 import 'community_join_requests_screen.dart';
 import 'member_chat_screen.dart';
 import '../utils/firestore_index_link_copy.dart';
+import '../utils/error_formatter.dart';
+import '../utils/error_snackbar.dart';
 import 'transactions/transaction_flow_screen.dart';
 import 'wallet_screen.dart';
 
@@ -2411,12 +2413,14 @@ class _CommunityMemberSelectScreenState
           ),
         ),
       );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('貸出の記録に失敗しました: $e')),
-        );
-      }
+    } catch (e, st) {
+      if (!mounted) return;
+      final formatted = formatError(e, st);
+      showCopyableErrorSnack(
+        context: context,
+        heading: '貸出の記録に失敗しました',
+        error: formatted,
+      );
     } finally {
       if (mounted) {
         setState(() => _bankActionInProgress = null);
@@ -2462,12 +2466,14 @@ class _CommunityMemberSelectScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('請求を作成しました')),
       );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('請求の作成に失敗しました: $e')),
-        );
-      }
+    } catch (e, st) {
+      if (!mounted) return;
+      final formatted = formatError(e, st);
+      showCopyableErrorSnack(
+        context: context,
+        heading: '請求の作成に失敗しました',
+        error: formatted,
+      );
     } finally {
       if (mounted) {
         setState(() => _bankActionInProgress = null);
@@ -2518,12 +2524,14 @@ class _CommunityMemberSelectScreenState
           ),
         ),
       );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('贈与の記録に失敗しました: $e')),
-        );
-      }
+    } catch (e, st) {
+      if (!mounted) return;
+      final formatted = formatError(e, st);
+      showCopyableErrorSnack(
+        context: context,
+        heading: '贈与の記録に失敗しました',
+        error: formatted,
+      );
     } finally {
       if (mounted) {
         setState(() => _bankActionInProgress = null);

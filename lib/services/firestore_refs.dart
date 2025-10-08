@@ -52,6 +52,13 @@ class FirestoreRefs {
             toFirestore: (obj, _) => obj.toMap(),
           );
 
+  CollectionReference<Map<String, dynamic>> ledgerEntriesRaw(
+          String communityId) =>
+      _firestore
+          .collection('ledger')
+          .doc(communityId)
+          .collection('entries');
+
   CollectionReference<Map<String, dynamic>> ledgerIdempotency(
           String communityId) =>
       _firestore

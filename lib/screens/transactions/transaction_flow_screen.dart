@@ -8,6 +8,8 @@ import '../../services/ledger_service.dart';
 import '../../services/request_service.dart';
 import '../../services/split_calculator.dart';
 import '../../services/transaction_event_bus.dart';
+import '../../utils/error_formatter.dart';
+import '../../utils/error_snackbar.dart';
 
 const Color kBrandBlue = Color(0xFF0D80F2);
 const Color kLightGray = Color(0xFFF0F2F5);
@@ -392,8 +394,13 @@ class _TransactionFlowScreenState extends State<TransactionFlowScreen> {
       TransactionEventBus.instance.notify();
       if (!mounted) return;
       Navigator.of(context).pop(true);
-    } catch (e) {
-      _toast('送金に失敗しました: $e');
+    } catch (e, st) {
+      final formatted = formatError(e, st);
+      showCopyableErrorSnack(
+        context: context,
+        heading: '送金に失敗しました',
+        error: formatted,
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -425,8 +432,13 @@ class _TransactionFlowScreenState extends State<TransactionFlowScreen> {
       TransactionEventBus.instance.notify();
       if (!mounted) return;
       Navigator.of(context).pop(true);
-    } catch (e) {
-      _toast('請求に失敗しました: $e');
+    } catch (e, st) {
+      final formatted = formatError(e, st);
+      showCopyableErrorSnack(
+        context: context,
+        heading: '請求に失敗しました',
+        error: formatted,
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -464,8 +476,13 @@ class _TransactionFlowScreenState extends State<TransactionFlowScreen> {
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
-    } catch (e) {
-      _toast('割り勘の作成に失敗しました: $e');
+    } catch (e, st) {
+      final formatted = formatError(e, st);
+      showCopyableErrorSnack(
+        context: context,
+        heading: '割り勘の作成に失敗しました',
+        error: formatted,
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

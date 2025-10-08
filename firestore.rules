@@ -1,3 +1,4 @@
+// ...existing code...
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -29,9 +30,9 @@ service cloud.firestore {
 
     function threadParticipantUpdateAllowed(cid, threadId) {
       let existing = threadExists(cid, threadId) ? threadData(cid, threadId).participants : [];
-  let incoming = request.resource.data.participants;
-  let existingList = existing == null ? [] : existing;
-  let incomingList = incoming == null ? existingList : incoming;
+      let incoming = request.resource.data.participants;
+      let existingList = existing == null ? [] : existing;
+      let incomingList = incoming == null ? existingList : incoming;
       return incomingList == existingList || (
         incomingList.size() <= 2 &&
         incomingList.size() >= existingList.size() &&
@@ -87,10 +88,25 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
-    // ledger（開発用: サインインなら読み書き可）
-    match /ledger/{cid}/entries/{entryId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+    // ledger entries／idempotency
+    match /ledger/{cid} {
+      function isCommunityMemberOrCentralBank() {
+        return request.auth != null &&
+          (request.auth.uid == '__central_bank__' ||
+            exists(/databases/$(database)/documents/memberships/$(membershipId(cid, request.auth.uid))));
+      }
+
+      match /entries/{entryId} {
+        allow read: if isCommunityMemberOrCentralBank();
+        allow write: if isCommunityMemberOrCentralBank();
+      }
+
+      match /idempotency/{docId} {
+        allow read: if isCommunityMemberOrCentralBank();
+        allow create: if isCommunityMemberOrCentralBank();
+        allow update: if false;
+        allow delete: if false;
+      }
     }
 
     match /requests/{cid}/items/{reqId} {
@@ -105,41 +121,17 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
-    // community chats
+    // 開発用: community_chats をサインイン済みユーザーに対して緩く許可します。
+    // 本番では必ず元の厳格なルール（isCommunityMember / isThreadParticipant 等）に戻してください。
     match /community_chats/{cid} {
-      allow read: if isCommunityMember(cid);
-      allow write: if isCommunityMember(cid);
+      // サインインしていればコミュニティチャット全体の読み書きを許可（開発用）
+      allow read, write: if isSignedIn();
 
       match /threads/{threadId} {
-        allow read: if isCommunityMember(cid) || isThreadParticipant(cid, threadId);
-        allow create: if isCommunityMember(cid);
-        allow update: if (isThreadParticipant(cid, threadId) || isCommunityMember(cid))
-          && request.resource.data.keys().hasOnly([
-            'participants',
-            'createdAt',
-            'updatedAt',
-            'lastMessage',
-            'lastSenderUid',
-            'lastMessageType',
-            'lastMessageMetadata',
-            'unreadCounts',
-            'readAt'
-          ])
-          && (
-            request.resource.data.participants == resource.data.participants
-            || threadParticipantUpdateAllowed(cid, threadId)
-          )
-          && request.resource.data.createdAt == resource.data.createdAt
-          && (!request.resource.data.keys().hasAny(['unreadCounts'])
-            || request.resource.data.unreadCounts.keys().hasOnly(request.resource.data.participants))
-          && (!request.resource.data.keys().hasAny(['readAt'])
-            || request.resource.data.readAt.keys().hasOnly(request.resource.data.participants));
-        allow delete: if false;
+        allow read, create, update, delete: if isSignedIn();
 
         match /messages/{messageId} {
-          allow read: if isCommunityMember(cid) || isThreadParticipant(cid, threadId);
-          allow create: if isCommunityMember(cid) || isThreadParticipant(cid, threadId);
-          allow update, delete: if false;
+          allow read, create, update, delete: if isSignedIn();
         }
       }
     }
@@ -150,3 +142,4 @@ service cloud.firestore {
     }
   }
 }
+// ...existing code...

@@ -13,6 +13,9 @@ import '../models/community.dart';
 import '../models/conversation_summary.dart';
 import '../services/chat_service.dart';
 import '../services/conversation_service.dart';
+import '../services/request_service.dart';
+import '../utils/error_formatter.dart';
+import '../utils/error_snackbar.dart';
 
 const Color _kBgLight = Color(0xFFF1F5F9);
 const Color _kCardWhite = Color(0xFFFFFFFF);
@@ -82,6 +85,7 @@ class MemberChatScreen extends StatefulWidget {
 class _MemberChatScreenState extends State<MemberChatScreen> {
   final ConversationService _conversationService = ConversationService();
   final ChatService _chatService = ChatService();
+  final RequestService _requestService = RequestService();
   final TextEditingController _messageCtrl = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
@@ -97,6 +101,7 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
   bool _markingRead = false;
   // track message ids that have had their timestamps shown so we can preserve them
   final Set<String> _timeShownIds = <String>{};
+  final Set<String> _requestActionsInProgress = <String>{};
 
   @override
   void initState() {
@@ -385,6 +390,72 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
     }
   }
 
+  Future<void> _approveRequestInChat(ChatMessage message) async {
+    final requestId = message.requestId;
+    if (requestId == null) return;
+    if (_requestActionsInProgress.contains(requestId)) return;
+    setState(() => _requestActionsInProgress.add(requestId));
+    try {
+      await _requestService.approveRequest(
+        communityId: widget.communityId,
+        requestId: requestId,
+        approvedBy: widget.currentUser.uid,
+      );
+      await _refreshSummary();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請求を承認しました')),
+      );
+    } catch (e, st) {
+      if (mounted) {
+        showCopyableErrorSnack(
+          context: context,
+          heading: '請求の承認に失敗しました',
+          error: formatError(e, st),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _requestActionsInProgress.remove(requestId));
+      } else {
+        _requestActionsInProgress.remove(requestId);
+      }
+    }
+  }
+
+  Future<void> _rejectRequestInChat(ChatMessage message) async {
+    final requestId = message.requestId;
+    if (requestId == null) return;
+    if (_requestActionsInProgress.contains(requestId)) return;
+    setState(() => _requestActionsInProgress.add(requestId));
+    try {
+      await _requestService.rejectRequest(
+        communityId: widget.communityId,
+        requestId: requestId,
+        rejectedBy: widget.currentUser.uid,
+      );
+      await _refreshSummary();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('請求を却下しました')),
+      );
+    } catch (e, st) {
+      if (mounted) {
+        showCopyableErrorSnack(
+          context: context,
+          heading: '請求の却下に失敗しました',
+          error: formatError(e, st),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _requestActionsInProgress.remove(requestId));
+      } else {
+        _requestActionsInProgress.remove(requestId);
+      }
+    }
+  }
+
   Future<void> _openSplitSheet() async {
     final community = _community;
     if (community == null) return;
@@ -513,18 +584,17 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
             child: (_partnerPhotoUrl ?? widget.partnerPhotoUrl) == null ||
                     (_partnerPhotoUrl ?? widget.partnerPhotoUrl)!.isEmpty
                 ? Text(
-                    (_partnerDisplayName.isNotEmpty
-                            ? _partnerDisplayName
-                            : widget.partnerDisplayName)
-                        .characters
-                        .first
+                    ((_partnerDisplayName.isNotEmpty
+                                ? _partnerDisplayName
+                                : widget.partnerDisplayName)
+                            .characters
+                            .first)
                         .toUpperCase(),
-                    style: const TextStyle(
-                        color: _kMainBlue, fontWeight: FontWeight.bold),
+                    style: const TextStyle(color: _kMainBlue),
                   )
-                : null,
-          ),
-          const SizedBox(width: 12),
+        : null,
+      ),
+      const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -750,11 +820,15 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
                 if (entry.isDate) {
                   return _DateChip(date: entry.date!);
                 }
-                final showTime = entry.showTime ?? true;
-                final isMine =
-                    entry.message!.senderUid == widget.currentUser.uid;
-                return _MessageBubble(
-                  message: entry.message!,
+        final message = entry.message!;
+        final showTime = entry.showTime ?? true;
+        final isMine =
+          message.senderUid == widget.currentUser.uid;
+        final requestId = message.requestId;
+        final isProcessingRequest = requestId != null &&
+          _requestActionsInProgress.contains(requestId);
+        return _MessageBubble(
+          message: message,
                   isMine: isMine,
                   partnerPhotoUrl: _partnerPhotoUrl ?? widget.partnerPhotoUrl,
                   partnerInitial: (_partnerDisplayName.isNotEmpty
@@ -766,6 +840,15 @@ class _MemberChatScreenState extends State<MemberChatScreen> {
                   currencyCode: _community?.currency.code ?? 'ECO',
                   showTime: showTime,
                   isRead: isMine && showTime && !partnerHasUnread,
+          communityId: widget.communityId,
+          currentUserUid: widget.currentUser.uid,
+          onApproveRequest: !isMine && requestId != null
+            ? () => _approveRequestInChat(message)
+            : null,
+          onRejectRequest: !isMine && requestId != null
+            ? () => _rejectRequestInChat(message)
+            : null,
+          requestActionInProgress: isProcessingRequest,
                 );
               },
             );
@@ -1088,8 +1171,13 @@ class _MessageBubble extends StatelessWidget {
     required this.partnerPhotoUrl,
     required this.partnerInitial,
     required this.currencyCode,
+    required this.communityId,
+    required this.currentUserUid,
     this.showTime = true,
     required this.isRead,
+    this.onApproveRequest,
+    this.onRejectRequest,
+    this.requestActionInProgress = false,
   });
 
   final ChatMessage message;
@@ -1097,8 +1185,13 @@ class _MessageBubble extends StatelessWidget {
   final String? partnerPhotoUrl;
   final String partnerInitial;
   final String currencyCode;
+  final String communityId;
+  final String currentUserUid;
   final bool showTime;
   final bool isRead;
+  final VoidCallback? onApproveRequest;
+  final VoidCallback? onRejectRequest;
+  final bool requestActionInProgress;
 
   @override
   Widget build(BuildContext context) {
@@ -1119,10 +1212,33 @@ class _MessageBubble extends StatelessWidget {
         message.isRequest ||
         message.isSplit ||
         message.isTask;
-    final Color bubbleColor = isSpecial
-        ? _buildCardColor(isMine)
-        : (isMine ? _kBubbleMe : _kBubbleOther);
+    final Color bubbleColor;
+    if (isSpecial) {
+      bubbleColor = _buildCardColor(isMine);
+    } else if (isMine) {
+      bubbleColor = _kBubbleMe;
+    } else {
+      bubbleColor = Colors.white;
+    }
     final Color textColor = isMine ? _kBubbleMeText : _kTextMain;
+
+    final BoxBorder? bubbleBorder = isSpecial
+        ? Border.all(
+            color: isMine
+                ? Colors.transparent
+                : const Color(0xFFE2E8F0),
+          )
+        : (!isMine ? Border.all(color: const Color(0xFFE2E8F0)) : null);
+
+    final List<BoxShadow>? bubbleShadow = !isMine
+        ? [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              offset: const Offset(0, 2),
+              blurRadius: 6,
+            ),
+          ]
+        : null;
 
     final Widget content = _buildContent(context, textColor);
 
@@ -1162,7 +1278,8 @@ class _MessageBubble extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 6),
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment:
+              isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
             if (!isMine)
               Padding(
@@ -1203,13 +1320,8 @@ class _MessageBubble extends StatelessWidget {
                     bottomLeft: Radius.circular(isMine ? 24 : 4),
                     bottomRight: Radius.circular(isMine ? 4 : 24),
                   ),
-                  border: isSpecial
-                      ? Border.all(
-                          color: isMine
-                              ? Colors.transparent
-                              : const Color(0xFFE2E8F0),
-                        )
-                      : null,
+                  border: bubbleBorder,
+                  boxShadow: bubbleShadow,
                 ),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -1310,7 +1422,15 @@ class _MessageBubble extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 8),
-          _RequestStatusChip(requestId: message.requestId),
+          _RequestStatusChip(
+            communityId: communityId,
+            requestId: message.requestId,
+            currentUserUid: currentUserUid,
+            isMine: isMine,
+            onApprove: onApproveRequest,
+            onReject: onRejectRequest,
+            processing: requestActionInProgress,
+          ),
         ],
       );
     }
@@ -1377,9 +1497,23 @@ class _MessageBubble extends StatelessWidget {
 }
 
 class _RequestStatusChip extends StatelessWidget {
-  const _RequestStatusChip({required this.requestId});
+  const _RequestStatusChip({
+    required this.communityId,
+    required this.requestId,
+    required this.currentUserUid,
+    required this.isMine,
+    this.onApprove,
+    this.onReject,
+    this.processing = false,
+  });
 
+  final String communityId;
   final String? requestId;
+  final String currentUserUid;
+  final bool isMine;
+  final VoidCallback? onApprove;
+  final VoidCallback? onReject;
+  final bool processing;
 
   @override
   Widget build(BuildContext context) {
@@ -1388,14 +1522,14 @@ class _RequestStatusChip extends StatelessWidget {
     }
     final requestDoc = FirebaseFirestore.instance
         .collection('requests')
-        .doc(_conversationContextOf(context).communityId)
+        .doc(communityId)
         .collection('items')
         .doc(requestId);
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: requestDoc.snapshots(),
       builder: (context, snapshot) {
-        final status =
-            (snapshot.data?.data()?['status'] as String?) ?? 'pending';
+        final data = snapshot.data?.data();
+        final status = (data?['status'] as String?) ?? 'pending';
         final label = switch (status) {
           'approved' => '承認済み',
           'rejected' => '却下',
@@ -1408,7 +1542,14 @@ class _RequestStatusChip extends StatelessWidget {
           'processing' => _kAccentOrange,
           _ => _kAccentOrange,
         };
-        return Container(
+        final toUid = (data?['toUid'] as String?) ?? '';
+        final canAct = !isMine &&
+            status == 'pending' &&
+            toUid == currentUserUid &&
+            onApprove != null &&
+            onReject != null;
+
+        final statusChip = Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             color: color.withOpacity(0.12),
@@ -1419,6 +1560,42 @@ class _RequestStatusChip extends StatelessWidget {
             style: TextStyle(
                 color: color, fontSize: 12, fontWeight: FontWeight.w600),
           ),
+        );
+
+        if (!canAct) {
+          return statusChip;
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            statusChip,
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(backgroundColor: _kSubGreen),
+              onPressed: processing ? null : onApprove,
+              icon: processing
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    )
+                  : const Icon(Icons.check_circle_outline),
+              label: Text(processing ? '処理中...' : '承認して送金'),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _kDangerRed,
+              ),
+              onPressed: processing ? null : onReject,
+              icon: const Icon(Icons.close),
+              label: const Text('却下'),
+            ),
+          ],
         );
       },
     );
